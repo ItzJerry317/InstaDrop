@@ -56,7 +56,9 @@ app.whenReady().then(() => {
   })
 
   // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  ipcMain.handle('ping', () => {
+    return 'pong'
+  });
 
   ipcMain.handle('get-system-info', async (): Promise<SystemInfo> => {
     return {

@@ -1,11 +1,20 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { SystemInfo } from '../shared/types';
+import { time } from 'console';
 
 // 定义我们要暴露给前端的 API 对象
 const electronAPI = {
   // 调用主进程的方法，并返回 Promise
   getSystemInfo: (): Promise<SystemInfo> => ipcRenderer.invoke('get-system-info'),
-  ping: () => ipcRenderer.send('ping'),
+  ping: async (): Promise<number> => {
+    const startTime = Date.now();
+    const result = await ipcRenderer.invoke('ping')
+    const endTime = Date.now();
+    const latency = endTime - startTime;
+    console.log(`%c${result} received! Latency: ${latency}ms`, 'color: #00BFFF; font-weight: bold;');
+    
+    return latency;
+  },
   closeWindow: () => ipcRenderer.send('close-window')
 };
 

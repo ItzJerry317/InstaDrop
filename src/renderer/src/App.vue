@@ -7,6 +7,8 @@ const sysInfo = ref<SystemInfo | null>(null)
 const closeApp = () => {
   window.myElectronAPI.closeWindow()
 }
+const latencyTestShow = ref(false)
+var latency = ref(0)
 
 onMounted(async () => {
   // 页面加载时请求数据
@@ -14,8 +16,10 @@ onMounted(async () => {
 })
 
 // 测试 IPC 通信
-const handlePing = () => {
-  window.myElectronAPI.ping()
+const handlePing = async () => {
+  latency.value = await window.myElectronAPI.ping()
+  console.log(`Latency: ${latency}ms`)
+  latencyTestShow.value = true
 }
 </script>
 
@@ -49,6 +53,9 @@ const handlePing = () => {
                 <div class="d-flex justify-space-between mb-2">
                   <span>Electron 核心:</span>
                   <span class="text-primary font-weight-bold">{{ sysInfo.electronVersion }}</span>
+                </div>
+                <div class="d-flex justify-space-between mb-2" v-if="latencyTestShow">
+                  <span>IPC延迟测试结果：{{ latency }}ms</span>
                 </div>
               </v-card-text>
               <v-card-text v-else>

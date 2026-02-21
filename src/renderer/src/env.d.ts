@@ -6,7 +6,7 @@ declare global {
   interface Window {
     myElectronAPI: {
       getSystemInfo: () => Promise<SystemInfo>;
-      ping: () => void;
+      ping: () => Promise<number>;
       closeWindow: () => void;
     }
   }
