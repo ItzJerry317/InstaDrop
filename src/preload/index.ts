@@ -5,7 +5,8 @@ import { SystemInfo } from '../shared/types';
 const electronAPI = {
   // 调用主进程的方法，并返回 Promise
   getSystemInfo: (): Promise<SystemInfo> => ipcRenderer.invoke('get-system-info'),
-  ping: () => ipcRenderer.send('ping')
+  ping: () => ipcRenderer.send('ping'),
+  closeWindow: () => ipcRenderer.send('close-window')
 };
 
 declare global {

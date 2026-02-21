@@ -14,6 +14,7 @@ function createWindow(): void {
     width: 900,
     height: 670,
     show: false,
+    frame: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
@@ -64,6 +65,15 @@ app.whenReady().then(() => {
       electronVersion: process.versions.electron,
       isDarkMode: nativeTheme.shouldUseDarkColors
     };
+  });
+
+  ipcMain.on('close-window', () => {
+    const currentWindow = BrowserWindow.getFocusedWindow();
+    console.log(chalk.yellow('收到关闭窗口请求'))
+    if (currentWindow) {
+      console.log(chalk.yellow('正在关闭窗口...'))
+      currentWindow.close();
+    }
   });
 
   createWindow()

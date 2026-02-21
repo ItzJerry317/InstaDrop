@@ -7,6 +7,7 @@ declare global {
     myElectronAPI: {
       getSystemInfo: () => Promise<SystemInfo>;
       ping: () => void;
+      closeWindow: () => void;
     }
   }
 }
