@@ -1,22 +1,18 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer } from 'electron';
+import { SystemInfo } from '../shared/types';
 
-// Custom APIs for renderer
-const api = {}
+// 定义我们要暴露给前端的 API 对象
+const electronAPI = {
+  // 调用主进程的方法，并返回 Promise
+  getSystemInfo: (): Promise<SystemInfo> => ipcRenderer.invoke('get-system-info'),
+  ping: () => ipcRenderer.send('ping')
+};
 
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
+declare global {
+  interface Window {
+    myElectronAPI: typeof electronAPI;
   }
-} else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
 }
+
+// 将 API 暴露到全局的 window.myElectronAPI 上
+contextBridge.exposeInMainWorld('myElectronAPI', electronAPI);

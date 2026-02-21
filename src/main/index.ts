@@ -1,7 +1,12 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import * as path from 'path';
+import { SystemInfo } from '../shared/types';
+import chalk from 'chalk';
+//声明chalk等级
+chalk.level = 2;
 
 function createWindow(): void {
   // Create the browser window.
@@ -52,7 +57,17 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
+  ipcMain.handle('get-system-info', async (): Promise<SystemInfo> => {
+    return {
+      nodeVersion: process.versions.node,
+      chromeVersion: process.versions.chrome,
+      electronVersion: process.versions.electron,
+      isDarkMode: nativeTheme.shouldUseDarkColors
+    };
+  });
+
   createWindow()
+  console.log(chalk.green('主进程已启动'))
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
@@ -72,3 +87,5 @@ app.on('window-all-closed', () => {
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.
+
+// 注册 IPC 处理器，注意这里的返回类型我们声明为 Promise<SystemInfo>

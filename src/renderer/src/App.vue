@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import Versions from './components/Versions.vue'
 
-const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+const ipcHandle = (): void => window.myElectronAPI.ping()
+async function displayInfo() {
+  const info = await window.myElectronAPI.getSystemInfo();
+  
+  console.log(`Node.js 版本: ${info.nodeVersion}`);
+  console.log(`深色模式: ${info.isDarkMode ? '开启' : '关闭'}`);
+}
+
+displayInfo();
 </script>
 
 <template>
@@ -22,5 +29,4 @@ const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
       <a target="_blank" rel="noreferrer" @click="ipcHandle">Send IPC</a>
     </div>
   </div>
-  <Versions />
 </template>
