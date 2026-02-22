@@ -8,6 +8,11 @@ declare global {
       getSystemInfo: () => Promise<SystemInfo>;
       ping: () => Promise<number>;
       closeWindow: () => void;
+      getFilePath: (file: File) => string;
+      minimizeWindow: () => void;
+      getWindowStatus: () => Promise<string>;
+      toggleWindowStatus: () => void;
+      onWindowStateChanged: (callback: (state: string) => void) => void;
     }
   }
 }

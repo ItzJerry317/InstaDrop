@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { SystemInfo } from '../shared/types';
 
 // 定义我们要暴露给前端的 API 对象
@@ -14,7 +14,16 @@ const electronAPI = {
     
     return latency;
   },
-  closeWindow: () => ipcRenderer.send('close-window')
+  closeWindow: () => ipcRenderer.send('close-window'),
+  getFilePath: (file: File) => webUtils.getPathForFile(file),
+  minimizeWindow: () => ipcRenderer.send('minimize-window'),
+  getWindowStatus: () => ipcRenderer.invoke('get-window-status'),
+  toggleWindowStatus: () => ipcRenderer.send('toggle-window-status'),
+  onWindowStateChanged: (callback: (state: string) => void) => {
+    ipcRenderer.on('window-status-changed', (_event, state) => {
+      callback(state);
+    });
+  }
 };
 
 declare global {

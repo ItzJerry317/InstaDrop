@@ -2,7 +2,6 @@ import { app, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import * as path from 'path';
 import { SystemInfo } from '../shared/types';
 import chalk from 'chalk';
 //声明chalk等级
@@ -31,6 +30,15 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  mainWindow.on('maximize', () => {
+    mainWindow.webContents.send('window-status-changed', 'maximized')
+    console.log(chalk.blue('窗口已最大化'))
+  })
+
+  mainWindow.on('unmaximize', () => {
+    mainWindow.webContents.send('window-status-changed', 'unmaximized')
   })
 
   // HMR for renderer base on electron-vite cli.
@@ -77,6 +85,32 @@ app.whenReady().then(() => {
       console.log(chalk.yellow('正在关闭窗口...\n正在存储LocalStorage数据...'));
       currentWindow.webContents.session.flushStorageData();
       currentWindow.close();
+    }
+  });
+
+  ipcMain.on('minimize-window', () => {
+    const currentWindow = BrowserWindow.getFocusedWindow();
+    if (currentWindow) {
+      currentWindow.minimize();
+    }
+  });
+
+  ipcMain.handle('get-window-status', () => {
+    const currentWindow = BrowserWindow.getFocusedWindow();
+    if (currentWindow) {
+      return currentWindow.isMaximized() ? 'mdi-window-restore' : 'mdi-window-maximize';
+    }
+    return 'mdi-window-maximize';
+  });
+
+  ipcMain.on('toggle-window-status', () => {
+    const currentWindow = BrowserWindow.getFocusedWindow();
+    if (currentWindow) {
+      if (currentWindow.isMaximized()) {
+        currentWindow.unmaximize();
+      } else {
+        currentWindow.maximize();
+      }
     }
   });
 

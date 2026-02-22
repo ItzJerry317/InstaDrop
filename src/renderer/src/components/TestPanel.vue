@@ -16,7 +16,7 @@ onMounted(async () => {
 // 测试 IPC 通信
 const handlePing = async () => {
   latency.value = await window.myElectronAPI.ping()
-  console.log(`Latency: ${latency}ms`)
+  console.log(`Latency: ${latency.value}ms`)
   latencyTestShow.value = true
 }
 </script>
@@ -45,6 +45,14 @@ const handlePing = async () => {
               <div class="d-flex justify-space-between mb-2">
                 <span>Electron 核心:</span>
                 <span class="text-primary font-weight-bold">{{ sysInfo.electronVersion }}</span>
+              </div>
+              <div class="d-flex justify-space-between mb-2">
+                <span>Chromium 版本:</span>
+                <span class="text-primary font-weight-bold">{{ sysInfo.chromeVersion }}</span>
+              </div>
+              <div class="d-flex justify-space-between mb-2">
+                <span>系统主题模式:</span>
+                <span class="text-primary font-weight-bold">{{ sysInfo.isDarkMode ? '深色模式' : '浅色模式' }}</span>
               </div>
               <div class="d-flex justify-space-between mb-2" v-if="latencyTestShow">
                 <span>IPC延迟测试结果：{{ latency }}ms</span>

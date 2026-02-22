@@ -8,9 +8,24 @@ import { themePreference } from './store/themeStore'
 
 const currentTab = ref('home')
 const drawer = ref(false)
+const windowStatus = ref('mdi-window-maximize')
+
+// 窗口状态
+const checkWindowStatus = async () => {
+  windowStatus.value = await window.myElectronAPI.getWindowStatus()
+  console.log(`当前窗口状态: ${windowStatus.value}`)
+}
 
 const closeApp = () => {
   window.myElectronAPI.closeWindow()
+}
+
+const toggleWindowStatus = () => {
+  window.myElectronAPI.toggleWindowStatus()
+  checkWindowStatus()
+}
+const minimizeApp = () => {
+  window.myElectronAPI.minimizeWindow()
 }
 
 const theme = useTheme()
@@ -27,6 +42,11 @@ const applyTheme = (pref: string) => {
 
 onMounted(() => {
   applyTheme(themePreference.value)
+  checkWindowStatus()
+  window.myElectronAPI.onWindowStateChanged((newState) => {
+    console.log(`窗口状态变化: ${newState}`)
+    windowStatus.value = newState === 'maximized' ? 'mdi-window-restore' : 'mdi-window-maximize'
+  })
 })
 </script>
 
@@ -37,6 +57,8 @@ onMounted(() => {
       <v-btn icon="mdi-menu" style="-webkit-app-region: no-drag;" @click="drawer = !drawer"></v-btn>
       <v-app-bar-title>Instadrop</v-app-bar-title>
       <v-spacer></v-spacer>
+      <v-btn icon="mdi-window-minimize" style="-webkit-app-region: no-drag;" @click="minimizeApp"></v-btn>
+      <v-btn :icon="windowStatus" style="-webkit-app-region: no-drag;" @click="toggleWindowStatus"></v-btn>
       <v-btn icon="mdi-close" style="-webkit-app-region: no-drag;" @click="closeApp"></v-btn>
     </v-app-bar>
 
