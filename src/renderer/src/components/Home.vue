@@ -8,7 +8,15 @@ const {
   isP2PReady,
   connectToServer,
   disconnectServer,
-  sendFile
+  sendFile,
+  fileProgress,
+  currentFile,
+  sendStatus,
+  isCancelled,
+  pauseTransfer,
+  resumeTransfer,
+  cancelTransfer,
+  resetTransfer
 } = useWebRTC()
 
 interface DroppedFile {
@@ -77,24 +85,24 @@ const removeFile = (index: number) => {
 
 const processFiles = async () => {
   if (droppedFiles.value.length === 0) return
-    if (!isP2PReady.value) {
-      return alert('请先连线基站并等待手机接入！')
+  if (!isP2PReady.value) {
+    return alert('请先连线基站并等待手机接入！')
+  }
+
+  try {
+    // 遍历拖进去的所有文件，发完一个再发下一个
+    for (const file of droppedFiles.value) {
+      console.log(`🚀 正在极速空投: ${file.name}`)
+      await sendFile(file.path)
     }
-  
-    try {
-      // 遍历拖进去的所有文件，发完一个再发下一个
-      for (const file of droppedFiles.value) {
-        console.log(`🚀 正在极速空投: ${file.name}`)
-        await sendFile(file.path) 
-      }
-      
-      alert('🎉 全部文件空投完毕！')
-      // 发送成功后清空列表
-      droppedFiles.value = [] 
-    } catch (error) {
-      console.error('发送过程中断:', error)
-      alert('发送失败，请检查网络连接')
+    console.log('Drop done')
+    // 只有所有文件都在未被强行终止的情况下发完了，才标记为 done
+    if (sendStatus.value.status !== 'idle') {
+      sendStatus.value = { status: 'done', message: '全部文件传输完成' }
     }
+  } catch (error) {
+    console.error('传输任务结束或被终止：', error)
+  }
 }
 </script>
 
@@ -108,7 +116,7 @@ const processFiles = async () => {
               <v-icon :color="isP2PReady ? 'purple-accent-3' : (isConnected ? 'success' : 'grey')" class="mr-3">
                 {{ isP2PReady ? 'mdi-lightning-bolt' : 'mdi-access-point-network' }}
               </v-icon>
-              
+
               <span v-if="!isConnected" class="text-medium-emphasis">离线状态，准备就绪</span>
               <span v-else-if="!isP2PReady" class="font-weight-bold text-success">
                 等待手机接入... 取件码: <span class="text-h6 mx-2">{{ roomCode }}</span>
@@ -117,13 +125,9 @@ const processFiles = async () => {
                 P2P 连接已建立，可以发送文件
               </span>
             </div>
-        
-            <v-btn 
-              :color="isConnected ? 'error' : 'success'" 
-              variant="elevated" 
-              size="small"
-              @click="isConnected ? disconnectServer() : connectToServer()"
-            >
+
+            <v-btn :color="isConnected ? 'error' : 'success'" variant="elevated" size="small"
+              @click="isConnected ? disconnectServer() : connectToServer()">
               {{ isConnected ? '断开连接' : '启动信令基站' }}
             </v-btn>
           </v-card-text>
@@ -167,16 +171,55 @@ const processFiles = async () => {
                   <v-btn icon="mdi-close" variant="text" color="error" size="small" @click="removeFile(index)"></v-btn>
                 </template>
               </v-list-item>
+              <v-divider></v-divider>
+              <v-list-item>
+                <span class="text-primary font-weight-bold">
+                  {{ sendStatus.status === "idle" ? "等待传输" : 
+                  sendStatus.status === "sending" ? "正在传输：" + (currentFile?.name || '未知文件') : 
+                  sendStatus.status === "paused" ? "已暂停传输：" + (currentFile?.name || '未知文件') : 
+                  sendStatus.status === "done" ? "所有文件传输完成" : "传输异常：" + sendStatus.message || "未知原因" }}
+                </span>
+                <div v-if="sendStatus.status !== 'idle'">
+                  <span class="text-medium-emphasis">传输进度: {{ fileProgress }}%</span>
+                </div>
+                <div style="height: 10px;"></div>
+                <v-progress-linear :model-value="fileProgress"
+                  :color="sendStatus.status === 'done' ? 'success' : sendStatus.status === 'error' ? 'error' : 'primary'"></v-progress-linear>
+              </v-list-item>
             </v-list>
 
             <v-divider></v-divider>
-
-            <v-card-actions>
+            <v-card-actions class="pa-3">
               <v-spacer></v-spacer>
-              <v-btn color="error" variant="flat" @click="droppedFiles = []">清空全部</v-btn>
-              <v-btn color="success" variant="flat" :disabled="droppedFiles.length === 0 || !isP2PReady" prepend-icon="mdi-rocket-launch" @click="processFiles">
-                传输
-              </v-btn>
+
+              <template v-if="sendStatus.status === 'idle'">
+                <v-btn color="error" variant="flat" prepend-icon="mdi-delete" @click="droppedFiles = []; resetTransfer()">
+                  清空全部
+                </v-btn>
+                <v-btn color="success" variant="flat" prepend-icon="mdi-arrow-right-drop-circle" :disabled="droppedFiles.length === 0 || !isP2PReady" @click="processFiles">
+                  开始传输
+                </v-btn>
+              </template>
+
+              <template v-else-if="sendStatus.status === 'sending' || sendStatus.status === 'paused'">
+                <v-btn color="error" variant="flat" prepend-icon="mdi-stop-circle-outline" @click="cancelTransfer">
+                  终止传输
+                </v-btn>
+                
+                <v-btn v-if="sendStatus.status === 'sending'" color="warning" variant="flat" prepend-icon="mdi-pause-circle-outline" @click="pauseTransfer">
+                  暂停
+                </v-btn>
+                
+                <v-btn v-else color="info" variant="flat" prepend-icon="mdi-play-circle-outline" @click="resumeTransfer">
+                  继续
+                </v-btn>
+              </template>
+
+              <template v-else>
+                <v-btn color="primary" variant="flat" prepend-icon="mdi-check-circle-outline" @click="resetTransfer">
+                  关闭控制面板
+                </v-btn>
+              </template>
             </v-card-actions>
           </v-card>
         </v-expand-transition>

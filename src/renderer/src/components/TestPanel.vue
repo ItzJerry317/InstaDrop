@@ -43,8 +43,8 @@ const connectToServer = () => {
     dataChannel = peerConnection.createDataChannel('instadrop-file')
 
     dataChannel.onopen = () => {
-        console.log('⚡ WebRTC 数据通道已敞开！')
-        isP2PReady.value = true // 🔥 告诉 Vue：物理通道打通了！
+      console.log('⚡ WebRTC 数据通道已敞开！')
+      isP2PReady.value = true // 🔥 告诉 Vue：物理通道打通了！
     }
 
     // 3. 收集本地的网络坐标(ICE)发送给手机端
@@ -108,7 +108,7 @@ const sendFile = async (filePath: string) => {
       offset += chunk.length
 
       // 这里可以用来做进度条 (可选打印)
-      // console.log(`发送进度: ${Math.round((offset / size) * 100)}%`)
+      console.log(`发送进度: ${Math.round((offset / size) * 100)}%`)
     }
 
     // 4. 全部发完后，发最后一条特殊消息：告诉手机“接收完毕，可以保存了”
@@ -152,138 +152,126 @@ const handlePing = async () => {
 </script>
 
 <template>
-  <v-app>
-    <v-main>
-      <v-container>
-        <v-col>
-          <v-card variant="elevated" elevation="3">
-            <v-card-item>
-              <template v-slot:prepend>
-                <v-icon icon="mdi-server-network" color="info" size="x-large" class="mr-2"></v-icon>
-              </template>
-              <v-card-title>本地运行环境状态</v-card-title>
-              <v-card-subtitle>Local System Environment</v-card-subtitle>
-            </v-card-item>
+  <v-container>
+    <v-col>
+      <v-card variant="elevated" elevation="3">
+        <v-card-item>
+          <template v-slot:prepend>
+            <v-icon icon="mdi-server-network" color="info" size="x-large" class="mr-2"></v-icon>
+          </template>
+          <v-card-title>本地运行环境状态</v-card-title>
+          <v-card-subtitle>Local System Environment</v-card-subtitle>
+        </v-card-item>
 
-            <v-divider></v-divider>
+        <v-divider></v-divider>
 
-            <v-card-text v-if="sysInfo">
-              <div class="d-flex justify-space-between mb-2">
-                <span>Node.js 版本:</span>
-                <span class="text-primary font-weight-bold">{{ sysInfo.nodeVersion }}</span>
+        <v-card-text v-if="sysInfo">
+          <div class="d-flex justify-space-between mb-2">
+            <span>Node.js 版本:</span>
+            <span class="text-primary font-weight-bold">{{ sysInfo.nodeVersion }}</span>
+          </div>
+          <div class="d-flex justify-space-between mb-2">
+            <span>Electron 核心:</span>
+            <span class="text-primary font-weight-bold">{{ sysInfo.electronVersion }}</span>
+          </div>
+          <div class="d-flex justify-space-between mb-2">
+            <span>Chromium 版本:</span>
+            <span class="text-primary font-weight-bold">{{ sysInfo.chromeVersion }}</span>
+          </div>
+          <div class="d-flex justify-space-between mb-2">
+            <span>系统主题模式:</span>
+            <span class="text-primary font-weight-bold">{{ sysInfo.isDarkMode ? '深色模式' : '浅色模式' }}</span>
+          </div>
+          <div class="d-flex justify-space-between mb-2" v-if="latencyTestShow">
+            <span>IPC延迟测试结果：{{ latency }}ms</span>
+          </div>
+        </v-card-text>
+        <v-card-text v-else>
+          <v-progress-circular indeterminate color="primary"></v-progress-circular>
+          正在读取系统状态...
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn color="primary" variant="flat" prepend-icon="mdi-lan-connect" @click="handlePing">
+            发送测试 Ping
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+
+      <div style="height: 10px"></div>
+
+      <v-card variant="elevated" elevation="3">
+        <v-card-item>
+          <template v-slot:prepend>
+            <v-icon icon="mdi-server" color="info" size="x-large" class="mr-2"></v-icon>
+          </template>
+          <v-card-title>LocalStorage信息</v-card-title>
+          <v-card-subtitle>LocalStorage info</v-card-subtitle>
+        </v-card-item>
+
+        <v-divider></v-divider>
+
+        <v-card-text v-if="sysInfo">
+          <div class="d-flex justify-space-between mb-2">
+            <span>主题模式：</span>
+            <span class="text-primary font-weight-bold">{{ themePreference || '未设置（默认system）' }}</span>
+          </div>
+        </v-card-text>
+        <v-card-text v-else>
+          <v-progress-circular indeterminate color="primary"></v-progress-circular>
+          正在读取系统状态...
+        </v-card-text>
+      </v-card>
+
+      <div style="height: 10px"></div>
+
+      <v-card class="mt-4" variant="outlined">
+        <v-card-title class="text-primary font-weight-bold">
+          <v-icon icon="mdi-access-point-network" class="mr-2"></v-icon>
+          WebRTC 信令中枢测试
+        </v-card-title>
+
+        <v-card-text>
+          <div class="d-flex align-center mb-6">
+            <span class="mr-3 font-weight-medium">服务器状态:</span>
+            <v-chip :color="isConnected ? 'success' : 'error'" size="small" variant="flat" class="font-weight-bold">
+              {{ isConnected ? '🟢 已连接 (Online)' : '🔴 未连接 (Offline)' }}
+            </v-chip>
+          </div>
+
+          <v-expand-transition>
+            <div v-if="roomCode" class="text-center pa-6 bg-surface-variant rounded-xl mb-2 elevation-2">
+              <div class="text-subtitle-1 text-medium-emphasis mb-2">本机取件码 (Room Code)</div>
+              <div class="text-h2 font-weight-black text-primary" style="letter-spacing: 0.15em;">
+                {{ roomCode }}
               </div>
-              <div class="d-flex justify-space-between mb-2">
-                <span>Electron 核心:</span>
-                <span class="text-primary font-weight-bold">{{ sysInfo.electronVersion }}</span>
-              </div>
-              <div class="d-flex justify-space-between mb-2">
-                <span>Chromium 版本:</span>
-                <span class="text-primary font-weight-bold">{{ sysInfo.chromeVersion }}</span>
-              </div>
-              <div class="d-flex justify-space-between mb-2">
-                <span>系统主题模式:</span>
-                <span class="text-primary font-weight-bold">{{ sysInfo.isDarkMode ? '深色模式' : '浅色模式' }}</span>
-              </div>
-              <div class="d-flex justify-space-between mb-2" v-if="latencyTestShow">
-                <span>IPC延迟测试结果：{{ latency }}ms</span>
-              </div>
-            </v-card-text>
-            <v-card-text v-else>
-              <v-progress-circular indeterminate color="primary"></v-progress-circular>
-              正在读取系统状态...
-            </v-card-text>
-            <v-card-actions>
-              <v-spacer></v-spacer>
-              <v-btn color="primary" variant="flat" prepend-icon="mdi-lan-connect" @click="handlePing">
-                发送测试 Ping
-              </v-btn>
-            </v-card-actions>
-          </v-card>
+            </div>
+          </v-expand-transition>
+        </v-card-text>
 
-          <div style="height: 10px"></div>
+        <v-divider></v-divider>
 
-          <v-card variant="elevated" elevation="3">
-            <v-card-item>
-              <template v-slot:prepend>
-                <v-icon icon="mdi-server" color="info" size="x-large" class="mr-2"></v-icon>
-              </template>
-              <v-card-title>LocalStorage信息</v-card-title>
-              <v-card-subtitle>LocalStorage info</v-card-subtitle>
-            </v-card-item>
+        <v-card-actions class="pa-3">
+          <v-chip v-if="isConnected" :color="isP2PReady ? 'purple-accent-3' : 'warning'" variant="flat"
+            class="font-weight-bold">
+            {{ isP2PReady ? '⚡ P2P 通道已开启' : '⏳ 正在打洞穿透网络...' }}
+          </v-chip>
 
-            <v-divider></v-divider>
+          <v-spacer></v-spacer>
 
-            <v-card-text v-if="sysInfo">
-              <div class="d-flex justify-space-between mb-2">
-                <span>主题模式：</span>
-                <span class="text-primary font-weight-bold">{{ themePreference || '未设置（默认system）' }}</span>
-              </div>
-            </v-card-text>
-            <v-card-text v-else>
-              <v-progress-circular indeterminate color="primary"></v-progress-circular>
-              正在读取系统状态...
-            </v-card-text>
-          </v-card>
+          <v-btn :disabled="!isP2PReady" :color="isP2PReady ? 'success' : 'grey'" variant="elevated"
+            @click="sendFile('C:\\Users\\Littl\\Downloads\\test.mp4')">
+            发送测试视频
+          </v-btn>
 
-          <div style="height: 10px"></div>
-
-          <v-card class="mt-4" variant="outlined">
-            <v-card-title class="text-primary font-weight-bold">
-              <v-icon icon="mdi-access-point-network" class="mr-2"></v-icon>
-              WebRTC 信令中枢测试
-            </v-card-title>
-
-            <v-card-text>
-              <div class="d-flex align-center mb-6">
-                <span class="mr-3 font-weight-medium">服务器状态:</span>
-                <v-chip :color="isConnected ? 'success' : 'error'" size="small" variant="flat" class="font-weight-bold">
-                  {{ isConnected ? '🟢 已连接 (Online)' : '🔴 未连接 (Offline)' }}
-                </v-chip>
-              </div>
-
-              <v-expand-transition>
-                <div v-if="roomCode" class="text-center pa-6 bg-surface-variant rounded-xl mb-2 elevation-2">
-                  <div class="text-subtitle-1 text-medium-emphasis mb-2">本机取件码 (Room Code)</div>
-                  <div class="text-h2 font-weight-black text-primary" style="letter-spacing: 0.15em;">
-                    {{ roomCode }}
-                  </div>
-                </div>
-              </v-expand-transition>
-            </v-card-text>
-
-            <v-divider></v-divider>
-
-            <v-card-actions class="pa-3">
-              <v-chip 
-                v-if="isConnected" 
-                :color="isP2PReady ? 'purple-accent-3' : 'warning'" 
-                variant="flat" 
-                class="font-weight-bold"
-              >
-                {{ isP2PReady ? '⚡ P2P 通道已开启' : '⏳ 正在打洞穿透网络...' }}
-              </v-chip>
-            
-              <v-spacer></v-spacer>
-            
-              <v-btn 
-                :disabled="!isP2PReady"
-                :color="isP2PReady ? 'success' : 'grey'"
-                variant="elevated"
-                @click="sendFile('C:\\Users\\Littl\\Downloads\\test.mp4')"
-              >
-                发送测试视频
-              </v-btn>
-            
-              <v-btn v-if="!isConnected" color="primary" variant="flat" prepend-icon="mdi-link" @click="connectToServer">
-                连线服务器
-              </v-btn>
-              <v-btn v-else color="error" variant="tonal" prepend-icon="mdi-link-off" @click="disconnectServer">
-                切断连接
-              </v-btn>
-            </v-card-actions>
-          </v-card>
-        </v-col>
-      </v-container>
-    </v-main>
-  </v-app>
+          <v-btn v-if="!isConnected" color="primary" variant="flat" prepend-icon="mdi-link" @click="connectToServer">
+            连线服务器
+          </v-btn>
+          <v-btn v-else color="error" variant="tonal" prepend-icon="mdi-link-off" @click="disconnectServer">
+            切断连接
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-col>
+  </v-container>
 </template>

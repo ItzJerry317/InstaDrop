@@ -51,8 +51,6 @@ onMounted(() => {
 </script>
 
 <template>
-  <v-app>
-    <v-main>
       <v-container>
         <v-card max-width="800" class="mx-auto" variant="elevated" elevation="2">
 
@@ -122,6 +120,4 @@ onMounted(() => {
           </v-list>
         </v-card>
       </v-container>
-    </v-main>
-  </v-app>
 </template>
