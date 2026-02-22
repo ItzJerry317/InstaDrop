@@ -1,6 +1,7 @@
 # instadrop
 
-An Electron application with Vue and TypeScript
+An AirDrop alternative, with web file transfering support when device is not nearby.  
+using Electron for desktop support.  
 
 ## Recommended IDE Setup
 

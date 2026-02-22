@@ -20,7 +20,8 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
-    }
+    },
+    title: 'InstaDrop'
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -73,7 +74,8 @@ app.whenReady().then(() => {
     const currentWindow = BrowserWindow.getFocusedWindow();
     console.log(chalk.yellow('收到关闭窗口请求'))
     if (currentWindow) {
-      console.log(chalk.yellow('正在关闭窗口...'))
+      console.log(chalk.yellow('正在关闭窗口...\n正在存储LocalStorage数据...'));
+      currentWindow.webContents.session.flushStorageData();
       currentWindow.close();
     }
   });

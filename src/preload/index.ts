@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { SystemInfo } from '../shared/types';
-import { time } from 'console';
 
 // 定义我们要暴露给前端的 API 对象
 const electronAPI = {

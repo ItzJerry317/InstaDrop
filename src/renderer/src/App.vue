@@ -1,87 +1,107 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { SystemInfo } from '../../shared/types'
+import Home from './components/Home.vue'
+import TestPanel from './components/TestPanel.vue'
+import Settings from './components/Settings.vue'
+import { useTheme } from 'vuetify'
+import { themePreference } from './store/themeStore'
 
-// 存储主进程传来的系统信息
-const sysInfo = ref<SystemInfo | null>(null)
+const currentTab = ref('home')
+const drawer = ref(false)
+
 const closeApp = () => {
   window.myElectronAPI.closeWindow()
 }
-const latencyTestShow = ref(false)
-var latency = ref(0)
 
-onMounted(async () => {
-  // 页面加载时请求数据
-  sysInfo.value = await window.myElectronAPI.getSystemInfo()
-})
-
-// 测试 IPC 通信
-const handlePing = async () => {
-  latency.value = await window.myElectronAPI.ping()
-  console.log(`Latency: ${latency}ms`)
-  latencyTestShow.value = true
+const theme = useTheme()
+const systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
+const applyTheme = (pref: string) => {
+  if (pref === 'system') {
+    // 如果是系统默认，则根据操作系统的深色模式状态来决定
+    theme.change(systemThemeMedia.matches ? 'dark' : 'light')
+  } else {
+    // 否则强制使用用户选择的 light 或 dark
+    theme.change(pref)
+  }
 }
+
+onMounted(() => {
+  applyTheme(themePreference.value)
+})
 </script>
 
 <template>
   <v-app>
+    
     <v-app-bar color="primary" density="compact" style="-webkit-app-region: drag;">
-      <v-app-bar-title>Server Control Panel</v-app-bar-title>
+      <v-btn icon="mdi-menu" style="-webkit-app-region: no-drag;" @click="drawer = !drawer"></v-btn>
+      <v-app-bar-title>Instadrop</v-app-bar-title>
+      <v-spacer></v-spacer>
       <v-btn icon="mdi-close" style="-webkit-app-region: no-drag;" @click="closeApp"></v-btn>
     </v-app-bar>
 
+    <v-navigation-drawer  v-model="drawer" temporary>
+      <v-list density="compact" nav>
+        <v-list-item
+          prepend-icon="mdi-home"
+          title="主页"
+          value="home"
+          :active="currentTab === 'home'"
+          @click="currentTab = 'home'"
+          color="primary"
+        ></v-list-item>
+        
+        <v-list-item
+          prepend-icon="mdi-test-tube"
+          title="测试"
+          value="test"
+          :active="currentTab === 'test'"
+          @click="currentTab = 'test'"
+          color="primary"
+        ></v-list-item>
+
+        <v-list-item
+          prepend-icon="mdi-cog"
+          title="设置"
+          value="settings"
+          :active="currentTab === 'settings'"
+          @click="currentTab = 'settings'"
+          color="primary">
+        </v-list-item>
+      </v-list>
+    </v-navigation-drawer>
+    
     <v-main>
-      <v-container>
-        <v-row>
-          <v-col cols="12" md="6">
-            <v-card variant="elevated" elevation="3">
-              <v-card-item>
-                <template v-slot:prepend>
-                  <v-icon icon="mdi-server-network" color="info" size="x-large" class="mr-2"></v-icon>
-                </template>
-                <v-card-title>本地运行环境状态</v-card-title>
-                <v-card-subtitle>Local System Environment</v-card-subtitle>
-              </v-card-item>
-
-              <v-divider></v-divider>
-
-              <v-card-text v-if="sysInfo">
-                <div class="d-flex justify-space-between mb-2">
-                  <span>Node.js 版本:</span>
-                  <span class="text-primary font-weight-bold">{{ sysInfo.nodeVersion }}</span>
-                </div>
-                <div class="d-flex justify-space-between mb-2">
-                  <span>Electron 核心:</span>
-                  <span class="text-primary font-weight-bold">{{ sysInfo.electronVersion }}</span>
-                </div>
-                <div class="d-flex justify-space-between mb-2" v-if="latencyTestShow">
-                  <span>IPC延迟测试结果：{{ latency }}ms</span>
-                </div>
-              </v-card-text>
-              <v-card-text v-else>
-                <v-progress-circular indeterminate color="primary"></v-progress-circular>
-                正在读取系统状态...
-              </v-card-text>
-
-              <v-card-actions>
-                <v-spacer></v-spacer>
-                <v-btn 
-                  color="success" 
-                  variant="flat" 
-                  prepend-icon="mdi-lan-connect"
-                  @click="handlePing"
-                >
-                  发送测试 Ping
-                </v-btn>
-              </v-card-actions>
-            </v-card>
-          </v-col>
-        </v-row>
-      </v-container>
+      <Home v-if="currentTab === 'home'" />
+      <TestPanel v-if="currentTab === 'test'" />
+      <Settings v-if="currentTab === 'settings'" />
     </v-main>
   </v-app>
 </template>
 
 <style scoped>
-/* Vuetify 处理了 99% 的样式，这里通常不需要写什么了 */
+</style>
+
+<style>
+html {
+  overflow: hidden !important;
+}
+.v-main {
+  height: 100vh;
+  overflow-y: auto;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
 </style>
