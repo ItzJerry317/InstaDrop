@@ -23,7 +23,9 @@ const electronAPI = {
     ipcRenderer.on('window-status-changed', (_event, state) => {
       callback(state);
     });
-  }
+  },
+  getFileInfo: (filePath: string) => ipcRenderer.invoke('get-file-info', filePath),
+  readFileChunk: (filePath: string, offset: number, chunkSize: number) => ipcRenderer.invoke('read-file-chunk', filePath, offset, chunkSize)
 };
 
 declare global {

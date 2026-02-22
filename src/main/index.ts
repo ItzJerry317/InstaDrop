@@ -1,11 +1,14 @@
-import { app, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeTheme} from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { SystemInfo } from '../shared/types';
 import chalk from 'chalk';
+import fs from 'fs'
+import path from 'path'
 //声明chalk等级
 chalk.level = 2;
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns')
 
 function createWindow(): void {
   // Create the browser window.
@@ -77,6 +80,27 @@ app.whenReady().then(() => {
       isDarkMode: nativeTheme.shouldUseDarkColors
     };
   });
+
+  // 获取文件基本信息 (名字、大小)
+  ipcMain.handle('get-file-info', async (_event, filePath: string) => {
+    const stats = await fs.promises.stat(filePath)
+    return { 
+      name: path.basename(filePath), 
+      size: stats.size 
+    }
+  })
+  
+  // 核心：读取文件的指定“切片” (比如从第 1024 字节开始，读取 64KB 数据)
+  ipcMain.handle('read-file-chunk', async (_event, filePath: string, offset: number, chunkSize: number) => {
+    const fileHandle = await fs.promises.open(filePath, 'r')
+    const buffer = Buffer.alloc(chunkSize)
+    // 读取数据填入 buffer
+    const { bytesRead } = await fileHandle.read(buffer, 0, chunkSize, offset)
+    await fileHandle.close()
+  
+    // 返回实际读到的字节 (Electron 会自动把它转成前端可用的 Uint8Array)
+    return buffer.slice(0, bytesRead) 
+  })
 
   ipcMain.on('close-window', () => {
     const currentWindow = BrowserWindow.getFocusedWindow();

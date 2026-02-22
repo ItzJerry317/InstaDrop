@@ -101,16 +101,21 @@ onMounted(() => {
   </v-app>
 </template>
 
-<style scoped>
-</style>
-
 <style>
-html {
+html, body {
+  overflow: hidden !important;
+  margin: 0;
+  padding: 0;
+  overflow-y: hidden !important;
+}
+#app, .v-application, .v-application__wrap {
+  height: 100vh !important;
+  max-height: 100vh !important;
   overflow: hidden !important;
 }
 .v-main {
-  height: 100vh;
-  overflow-y: auto;
+  height: 100vh; 
+  overflow-y: auto !important;
 }
 ::-webkit-scrollbar {
   width: 8px;
