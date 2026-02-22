@@ -1,5 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useWebRTC } from '../composables/useWebRTC'
+
+const {
+  roomCode,
+  isConnected,
+  isP2PReady,
+  connectToServer,
+  disconnectServer,
+  sendFile
+} = useWebRTC()
 
 interface DroppedFile {
   name: string
@@ -65,14 +75,26 @@ const removeFile = (index: number) => {
   droppedFiles.value.splice(index, 1)
 }
 
-const processFiles = () => {
+const processFiles = async () => {
   if (droppedFiles.value.length === 0) return
-
-  const filePaths = droppedFiles.value.map(f => f.path)
-
-  // TODO: 这里即将调用 IPC
-  console.log('准备送往后台执行的物理路径:', filePaths)
-  alert(`成功抓取了 ${filePaths.length} 个文件的路径！按 F12 看看控制台。`)
+    if (!isP2PReady.value) {
+      return alert('请先连线基站并等待手机接入！')
+    }
+  
+    try {
+      // 遍历拖进去的所有文件，发完一个再发下一个
+      for (const file of droppedFiles.value) {
+        console.log(`🚀 正在极速空投: ${file.name}`)
+        await sendFile(file.path) 
+      }
+      
+      alert('🎉 全部文件空投完毕！')
+      // 发送成功后清空列表
+      droppedFiles.value = [] 
+    } catch (error) {
+      console.error('发送过程中断:', error)
+      alert('发送失败，请检查网络连接')
+    }
 }
 </script>
 
@@ -80,6 +102,32 @@ const processFiles = () => {
   <v-container class="fill-height">
     <v-row justify="center" align="center">
       <v-col cols="12">
+        <v-card variant="flat" color="primary" class="mb-4 bg-surface-variant rounded-lg">
+          <v-card-text class="d-flex align-center justify-space-between py-2">
+            <div class="d-flex align-center">
+              <v-icon :color="isP2PReady ? 'purple-accent-3' : (isConnected ? 'success' : 'grey')" class="mr-3">
+                {{ isP2PReady ? 'mdi-lightning-bolt' : 'mdi-access-point-network' }}
+              </v-icon>
+              
+              <span v-if="!isConnected" class="text-medium-emphasis">离线状态，准备就绪</span>
+              <span v-else-if="!isP2PReady" class="font-weight-bold text-success">
+                等待手机接入... 取件码: <span class="text-h6 mx-2">{{ roomCode }}</span>
+              </span>
+              <span v-else class="font-weight-bold text-purple-accent-3">
+                P2P 连接已建立，可以发送文件
+              </span>
+            </div>
+        
+            <v-btn 
+              :color="isConnected ? 'error' : 'success'" 
+              variant="elevated" 
+              size="small"
+              @click="isConnected ? disconnectServer() : connectToServer()"
+            >
+              {{ isConnected ? '断开连接' : '启动信令基站' }}
+            </v-btn>
+          </v-card-text>
+        </v-card>
         <input type="file" ref="fileInputRef" multiple style="display: none;" @change="handleFileSelect" />
         <v-card @dragover.prevent="isDragging = true" @dragleave.prevent="isDragging = false" @drop.prevent="handleDrop"
           @click="triggerFileInput" :elevation="isDragging ? 8 : 2" :color="isDragging ? 'primary' : 'surface'"
@@ -126,7 +174,7 @@ const processFiles = () => {
             <v-card-actions>
               <v-spacer></v-spacer>
               <v-btn color="error" variant="flat" @click="droppedFiles = []">清空全部</v-btn>
-              <v-btn color="success" variant="flat" prepend-icon="mdi-rocket-launch" @click="processFiles">
+              <v-btn color="success" variant="flat" :disabled="droppedFiles.length === 0 || !isP2PReady" prepend-icon="mdi-rocket-launch" @click="processFiles">
                 传输
               </v-btn>
             </v-card-actions>
