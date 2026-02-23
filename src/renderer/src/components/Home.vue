@@ -12,7 +12,6 @@ const {
   fileProgress,
   currentFile,
   sendStatus,
-  isCancelled,
   pauseTransfer,
   resumeTransfer,
   cancelTransfer,

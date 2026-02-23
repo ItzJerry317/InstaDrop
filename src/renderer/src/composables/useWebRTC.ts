@@ -65,7 +65,7 @@ export function useWebRTC() {
       }
     })
 
-    socket.on('peer-joined', async (peerId: string) => {
+    socket.on('peer-joined', async () => {
       console.log('[WebRTC] 手机已加入，准备建立直连')
       isP2PReady.value = false
       peerConnection = new RTCPeerConnection(rtcConfig)
@@ -214,7 +214,6 @@ export function useWebRTC() {
     fileProgress,
     currentFile,
     sendStatus,
-    isCancelled,
     resetTransfer,
     pauseTransfer,
     resumeTransfer,
