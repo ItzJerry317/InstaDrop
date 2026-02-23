@@ -12,11 +12,11 @@ Using Electron for desktop support.
 </div>
 
 > [!IMPORTANT]
-> This project is **partly written by AI**, mainly including socket.io and WebRTC logic.
-> If you encounter any issue and/or found any security risks, feel free to [Open an Issue](https://github.com/ItzJerry317/InstaDrop/issues)!
-> This project is **still under development**, releases will be uploaded when basic features are done.
-> This project does NOT have i18n finished by now. Will be added soon.
-> *i mean, will anyone see this repository? i think no lol but i will use this software*
+> This project is **partly written by AI**, mainly including socket.io and WebRTC logic.  
+> If you encounter any issue and/or found any security risks, feel free to [Open an Issue](https://github.com/ItzJerry317/InstaDrop/issues)!  
+> This project is **still under development**, releases will be uploaded when basic features are done.  
+> This project does NOT have i18n finished by now. Will be added soon.  
+> *i mean, will anyone see this repository? i think no lol but i will use this software*  
 ---
 
 ## Recommended IDE Setup
