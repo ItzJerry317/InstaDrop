@@ -16,7 +16,6 @@ const {
   resumeTransfer,
   cancelTransfer,
   resetTransfer,
-  // 引入全新的设备与身份管理状态
   myDeviceId,
   myDeviceName,
   trustedDevices,
@@ -25,7 +24,11 @@ const {
   addTrustedDevice,
   removeTrustedDevice,
   connectToDevice,
-  transferSpeed
+  transferSpeed,
+  connectedPeerId,
+  connectedPeerName,
+  disconnectPeer,
+  updateDeviceRemark
 } = useWebRTC()
 
 interface DroppedFile {
@@ -41,6 +44,22 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const rules = {
   required: (value: string) => !!value || '此项为必填项',
+}
+
+// === 免责声明弹窗控制 ===
+const showDisclaimerDialog = ref(false)
+
+const acceptDisclaimer = () => {
+  // 记录到本地存储，以后不再弹出
+  localStorage.setItem('instadrop_disclaimer_accepted', 'true')
+  showDisclaimerDialog.value = false
+  // 同意后才开始连接服务器
+  connectToServer()
+}
+
+const rejectDisclaimer = () => {
+  // 退出应用
+  window.myElectronAPI.closeWindow()
 }
 
 // === UUID可见性控制 ===
@@ -88,8 +107,29 @@ const tempDeviceName = ref('')
 const showAddDeviceDialog = ref(false)
 const tempTargetId = ref('')
 const tempTargetName = ref('')
+const showEditDeviceNameDialog = ref(false)
+const tempEditDeviceId = ref('')
+const tempEditDeviceName = ref('')
+const tempEditDeviceOriginalName = ref('')
+const tempEditDeviceRemark = ref('')
 
 // === 弹窗操作方法 ===
+const openEditDeviceNameDialog = (device: { id: string, name: string, remark?: string }) => {
+  tempEditDeviceId.value = device.id
+  tempEditDeviceOriginalName.value = device.name // 对方的真实设备名
+  tempEditDeviceRemark.value = device.remark || '' // 你的备注
+  showEditDeviceNameDialog.value = true
+}
+
+const confirmEditDeviceName = () => {
+  if (tempEditDeviceOriginalName.value.trim() && tempEditDeviceId.value) {
+    // 调用专门的改备注方法，允许为空（为空则代表清空备注）
+    updateDeviceRemark(tempEditDeviceId.value, tempEditDeviceRemark.value.trim())
+    showEditDeviceNameDialog.value = false
+    triggerSnackbar('设备备注已更新', 'success')
+  }
+}
+
 const openEditNameDialog = () => {
   tempDeviceName.value = myDeviceName.value
   showEditNameDialog.value = true
@@ -129,8 +169,20 @@ const confirmAddDevice = () => {
     return
   }
 
-  addTrustedDevice(id, name || '新设备')
+  addTrustedDevice(id, '等待连接获取设备原名...')
+  updateDeviceRemark(id, name || '新设备')
   showAddDeviceDialog.value = false
+}
+
+const handleRemoveDevice = (id: string) => {
+  if (isP2PReady.value && id === connectedPeerId.value) {
+    console.log(id + " 是当前连接设备: " + connectedPeerId.value)
+    triggerSnackbar('不能删除正在连接的设备', 'error')
+  } else {
+    // 其他所有情况（没连网，或者连着 A 但想删 B），直接放行
+    console.log("执行删除: " + id)
+    removeTrustedDevice(id)
+  }
 }
 
 const triggerFileInput = () => {
@@ -225,9 +277,27 @@ const handleRegenerateId = async () => {
   }
 }
 
+const leaveRoom = () => {
+  if (isP2PReady.value) {
+    triggerSnackbar('已断开连接，正在刷新取件码', 'success')
+  } else {
+    triggerSnackbar('正在刷新取件码', 'success')
+  }
+  disconnectPeer()
+}
+
 onMounted(() => {
-  connectToServer()
-  console.log('onMounted 组件已挂载，正在连接信令服务器...')
+  // 检查是否已经同意过免责声明
+  const hasAccepted = localStorage.getItem('instadrop_disclaimer_accepted') === 'true'
+
+  if (!hasAccepted) {
+    // 没同意过，弹出强制提示框（此时不连接服务器）
+    showDisclaimerDialog.value = true
+  } else {
+    // 已经同意过，正常启动服务
+    connectToServer()
+    console.log('onMounted: 正在连接信令服务器...')
+  }
 })
 
 onUnmounted(() => {
@@ -242,7 +312,7 @@ onUnmounted(() => {
         <v-card variant="flat" color="primary" class="mb-4 bg-surface-variant rounded-lg">
           <v-card-text class="d-flex align-center justify-space-between py-2">
             <div class="d-flex align-center">
-              <v-icon :color="isP2PReady ? 'purple-accent-3' : (isConnected ? 'success' : 'grey')" class="mr-3">
+              <v-icon :color="isP2PReady ? '' : (isConnected ? 'success' : 'grey')" class="mr-3">
                 {{ isP2PReady ? 'mdi-lightning-bolt' : 'mdi-access-point-network' }}
               </v-icon>
 
@@ -255,14 +325,14 @@ onUnmounted(() => {
                   等待接入... 临时取件码: <span class="text-h6 mx-2">{{ roomCode }}</span>
                 </template>
               </span>
-              <span v-else class="font-weight-bold text-purple-accent-3">
-                P2P 连接已建立，可以发送文件
+              <span v-else class="font-weight-bold">
+                已与 {{ connectedPeerName }} 建立 P2P 连接，可以发送文件
               </span>
             </div>
 
             <v-btn :color="isConnected ? 'error' : 'success'" variant="elevated" size="small"
-              @click="isConnected ? disconnectServer() : connectToServer()" v-if="!isConnected">
-              {{ isConnected ? '断开连接' : '连接服务器' }} <!--连的是server.js搭建的socket.io服务器-->
+              @click="isConnected ? leaveRoom() : connectToServer()">
+              {{ !isConnected ? '连接服务器' : (isP2PReady ? '断开连接' : '刷新取件码') }}
             </v-btn>
           </v-card-text>
         </v-card>
@@ -384,11 +454,13 @@ onUnmounted(() => {
             <div class="d-flex align-center justify-space-between">
               <div style="overflow: hidden;">
                 <div class="text-caption text-medium-emphasis">唯一标识符 (UUID)</div>
-                <div class="text-caption text-truncate" style="color: #888;" :title="myDeviceId">{{ deviceIdVisibility ? myDeviceId : '••••••••' }}</div>
+                <div class="text-caption text-truncate" style="color: #888;" :title="myDeviceId">{{ deviceIdVisibility ?
+                  myDeviceId : '••••••••' }}</div>
               </div>
               <div class="d-flex">
-                <v-btn :icon="deviceIdVisibility ? 'mdi-eye-outline' : 'mdi-eye-off-outline'" @click="deviceIdVisibility = !deviceIdVisibility"
-                  variant="text" size="small" color="primary" :title="deviceIdVisibility ? '点击使UUID不可见' : '点击使UUID可见'"></v-btn>
+                <v-btn :icon="deviceIdVisibility ? 'mdi-eye-outline' : 'mdi-eye-off-outline'"
+                  @click="deviceIdVisibility = !deviceIdVisibility" variant="text" size="small" color="primary"
+                  :title="deviceIdVisibility ? '点击使UUID不可见' : '点击使UUID可见'"></v-btn>
                 <v-btn icon="mdi-content-copy" variant="text" size="small" color="primary"
                   @click="copyToClipboard(myDeviceId)" title="复制 ID"></v-btn>
                 <v-btn icon="mdi-refresh" variant="text" size="small" color="error" @click="handleRegenerateId"
@@ -417,17 +489,25 @@ onUnmounted(() => {
                   <v-icon icon="mdi-cellphone" color="primary"></v-icon>
                 </template>
 
-                <v-list-item-title class="font-weight-bold">{{ device.name }}</v-list-item-title>
+                <v-list-item-title class="font-weight-bold">{{ device.remark || device.name }}</v-list-item-title>
                 <v-list-item-subtitle class="text-caption">{{ device.isOnline ? '当前在线，可直连' : '已离线'
                 }}</v-list-item-subtitle>
 
                 <template v-slot:append>
                   <v-btn size="small" color="success" variant="tonal" class="mr-2"
-                    :disabled="!device.isOnline || isP2PReady" @click="connectToDevice(device.id)">
+                    :disabled="!device.isOnline || isP2PReady" @click="connectToDevice(device.id)"
+                    v-if="connectedPeerId !== device.id">
                     连接
                   </v-btn>
+                  <v-btn size="small" color="error" variant="tonal" class="mr-2"
+                    :disabled="!device.isOnline || !isP2PReady || device.id !== connectedPeerId" @click="leaveRoom()"
+                    v-if="connectedPeerId === device.id">
+                    断开
+                  </v-btn>
+                  <v-btn icon="mdi-pencil-outline" variant="text" size="small" color="primary" class="mr-1"
+                    @click="openEditDeviceNameDialog(device)" title="修改备注名"></v-btn>
                   <v-btn icon="mdi-trash-can-outline" variant="text" size="small" color="error"
-                    @click="removeTrustedDevice(device.id)"></v-btn>
+                    @click="handleRemoveDevice(device.id)"></v-btn>
                 </template>
               </v-list-item>
               <v-divider v-if="index < trustedDevices.length - 1"></v-divider>
@@ -487,16 +567,73 @@ onUnmounted(() => {
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn text="取消" @click="confirmDialogAction(false)"></v-btn>
-          <v-btn :disabled="!confirmCheck" text="确定" color="error" variant="elevated" @click="confirmDialogAction(true)"></v-btn>
+          <v-btn :disabled="!confirmCheck" text="确定" color="error" variant="elevated"
+            @click="confirmDialogAction(true)"></v-btn>
         </v-card-actions>
       </v-card>
 
     </v-dialog>
 
-    <v-snackbar v-model="showSnackbar" :color="snackbarColor" timeout="3000" location="top">
+    <v-dialog v-model="showEditDeviceNameDialog" max-width="400">
+      <v-card title="修改设备备注名">
+        <v-card-text>
+          <div class="text-caption text-medium-emphasis mb-1">
+            原设备名称 (由对方设置，不可修改)
+          </div>
+          <span> {{ tempEditDeviceOriginalName }}</span> <div class="text-caption text-medium-emphasis">(uuid: {{ tempEditDeviceId }})</div>
+          <div style="height: 5px;"></div>
+          <div class="text-caption text-medium-emphasis mb-2">自定义备注名称</div>
+          <v-text-field v-model="tempEditDeviceRemark" variant="outlined" density="compact" autofocus
+            @keyup.enter="confirmEditDeviceName()" placeholder="留空则恢复显示原名"></v-text-field>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn text="取消" @click="showEditDeviceNameDialog = false"></v-btn>
+          <v-btn variant='elevated' text="保存" color="primary" @click="confirmEditDeviceName()"></v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="showDisclaimerDialog" persistent max-width="500">
+      <v-card class="rounded-lg">
+        <v-card-title class="text-h6 font-weight-bold text-primary d-flex align-center pt-5 pb-3 px-5">
+          <v-icon icon="mdi-shield-check-outline" class="mr-2" size="large"></v-icon>
+          免责与隐私提示
+        </v-card-title>
+        <v-divider></v-divider>
+
+        <v-card-text class="pt-5 px-5 text-body-1" style="line-height: 1.6; color: white;">
+          <p class="mb-4">
+            <strong>Instadrop</strong> 是一款端到端加密的 P2P 传输工具，不包含任何云端文件存储功能，开发者无法查看、获取或审查您传输的任何内容。
+          </p>
+          <p class="mb-2">
+            您承诺在使用本软件时：
+          </p>
+          <ul class="pl-5 mb-4 text-medium-emphasis">
+            <li class="mb-1">遵守当地法律法规。</li>
+            <li class="mb-1">不传输任何非法、侵权或包含恶意代码的文件。</li>
+            <li>对您传输的内容承担全部法律责任。</li>
+          </ul>
+          <p class="text-caption text-medium-emphasis">
+            * 本软件按“原样”开源提供，不对传输的稳定性及安全性提供绝对保证，也不对因使用本软件造成的任何数据或财产损失负责。
+            <br>
+            * 您可以随时在 设置 页面重新查看详细的条款。
+          </p>
+        </v-card-text>
+
+        <v-card-actions class="pa-4">
+          <v-spacer></v-spacer>
+          <v-btn text="拒绝并退出" color="error" variant="text" @click="rejectDisclaimer"></v-btn>
+          <v-btn text="我已阅读并同意" color="primary" variant="elevated" prepend-icon="mdi-check"
+            @click="acceptDisclaimer"></v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-snackbar v-model="showSnackbar" :color="snackbarColor" timeout="3000" location="bottom">
       {{ snackbarMessage }}
       <template v-slot:actions>
-        <v-btn color="white" variant="text" @click="showSnackbar = false">
+        <v-btn variant="text" @click="showSnackbar = false">
           关闭
         </v-btn>
       </template>

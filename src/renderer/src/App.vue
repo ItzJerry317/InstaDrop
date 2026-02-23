@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import Home from './components/Home.vue'
+import Send from './components/Send.vue'
 import TestPanel from './components/TestPanel.vue'
 import Settings from './components/Settings.vue'
 import { useTheme } from 'vuetify'
-import { themePreference } from './store/themeStore'
+import { themePreference } from './store/localStorageRead'
 
-const currentTab = ref('home')
+const currentTab = ref('send')
 const drawer = ref(false)
 const windowStatus = ref('mdi-window-maximize')
 
@@ -65,11 +65,11 @@ onMounted(() => {
     <v-navigation-drawer  v-model="drawer" temporary>
       <v-list density="compact" nav>
         <v-list-item
-          prepend-icon="mdi-home"
-          title="主页"
-          value="home"
-          :active="currentTab === 'home'"
-          @click="currentTab = 'home'"
+          prepend-icon="mdi-upload"
+          title="发送"
+          value="send"
+          :active="currentTab === 'send'"
+          @click="currentTab = 'send'"
           color="primary"
         ></v-list-item>
         
@@ -94,7 +94,7 @@ onMounted(() => {
     </v-navigation-drawer>
     
     <v-main>
-      <Home v-if="currentTab === 'home'" />
+      <Send v-if="currentTab === 'send'" />
       <TestPanel v-if="currentTab === 'test'" />
       <Settings v-if="currentTab === 'settings'" />
     </v-main>

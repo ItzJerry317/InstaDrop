@@ -8,7 +8,7 @@ Using Electron for desktop support.
   
 <code><img height="30" src="https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white"></code><code><img height="30" src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white"></code><code><img height="30" src="https://img.shields.io/badge/Socket.io-010101?&style=for-the-badge&logo=Socket.io&logoColor=white"></code><code><img height="30" src="https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white"></code>  
 
-<img src="https://img.shields.io/github/issues-raw/ItzJerry317/instadrop" /> <img src="https://img.shields.io/github/license/ItzJerry317/InstaDrop" />
+<img src="https://img.shields.io/github/issues-raw/ItzJerry317/instadrop" />
 </div>
 
 > [!IMPORTANT]
