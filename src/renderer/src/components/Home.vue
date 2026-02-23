@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useWebRTC } from '../composables/useWebRTC'
 
 const {
@@ -39,6 +39,47 @@ const isDragging = ref(false)
 const droppedFiles = ref<DroppedFile[]>([])
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
+const rules = {
+  required: (value: string) => !!value || '此项为必填项',
+}
+
+// === UUID可见性控制 ===
+const deviceIdVisibility = ref(false)
+
+// === 确认弹窗控制 ===
+const showConfirmDialog = ref(false)
+const confirmDialogMessage = ref('')
+const showconfirmCheck = ref(false) //是否显示确认复选框
+const confirmCheck = ref(false) //复选框状态
+let dialogResolve: ((value: boolean) => void) | null = null
+const triggerDialog = (message: string, requireCheck?: boolean): Promise<boolean> => {
+  confirmDialogMessage.value = message
+  showConfirmDialog.value = true
+  showconfirmCheck.value = requireCheck || false
+  return new Promise((resolve) => {
+    dialogResolve = resolve
+  })
+}
+
+const confirmDialogAction = (result: boolean) => {
+  showConfirmDialog.value = false
+  if (dialogResolve) {
+    dialogResolve(result)
+    dialogResolve = null
+  }
+}
+
+// === SnackBar控制 ===
+const showSnackbar = ref(false)
+const snackbarMessage = ref('')
+const snackbarColor = ref('')
+
+const triggerSnackbar = (message: string, color: string) => {
+  snackbarMessage.value = message
+  snackbarColor.value = color
+  showSnackbar.value = true
+}
+
 
 // === 弹窗控制状态 (替代 prompt) ===
 const showEditNameDialog = ref(false)
@@ -70,7 +111,7 @@ const confirmAddDevice = () => {
   const name = tempTargetName.value.trim()
 
   if (!id) {
-    alert('UUID 不能为空！')
+    triggerSnackbar('设备 UUID 不能为空！', 'error')
     return
   }
 
@@ -78,13 +119,13 @@ const confirmAddDevice = () => {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
   if (!uuidRegex.test(id)) {
-    alert('输入的 UUID 格式不正确，请检查是否包含完整字符和中划线！')
+    triggerSnackbar('输入的 UUID 格式不正确，请检查是否正确输入！', 'error')
     return
   }
 
   // 如果自己添加自己，进行拦截
   if (id === myDeviceId.value) {
-    alert('不能添加本机为信任设备！')
+    triggerSnackbar('不能添加本机为信任设备！', 'error')
     return
   }
 
@@ -144,7 +185,7 @@ const removeFile = (index: number) => {
 const processFiles = async () => {
   if (droppedFiles.value.length === 0) return
   if (!isP2PReady.value) {
-    return alert('请先建立 P2P 连接！')
+    return triggerSnackbar('请先建立 P2P 连接！', 'error')
   }
 
   try {
@@ -164,18 +205,34 @@ const processFiles = async () => {
 const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text)
-    alert('已复制到剪贴板')
+    triggerSnackbar('已复制到剪贴板', 'info')
   } catch (e) {
     console.error('复制失败', e)
   }
 }
 
-const handleRegenerateId = () => {
-  if (confirm('警告：重置设备 ID 后，之前信任您的设备将无法自动连接。确定要重置吗？')) {
+const handleRegenerateId = async () => {
+  const isConfirmed = await triggerDialog(
+    '重置 UUID 后，需要等待双方重新通过 6 位码建立一次信任。\n' +
+    '你的现有 UUID 将被清空。\n你需要在绑定了该设备的其他设备上手动删除原来的绑定信息。\n\n' +
+    '确定要重置吗？\n' +
+    '（仅在你的 UUID 泄露时才需要进行此操作）', true
+  )
+  console.log(isConfirmed)
+  if (isConfirmed) {
     regenerateDeviceId()
-    alert('设备 ID 已重置，需等待双方重新通过 6 位码建立一次信任。')
+    triggerSnackbar('UUID 已重置，需等待双方重新通过 6 位码建立一次信任。', 'info')
   }
 }
+
+onMounted(() => {
+  connectToServer()
+  console.log('onMounted 组件已挂载，正在连接信令服务器...')
+})
+
+onUnmounted(() => {
+  disconnectServer()
+})
 </script>
 
 <template>
@@ -189,7 +246,7 @@ const handleRegenerateId = () => {
                 {{ isP2PReady ? 'mdi-lightning-bolt' : 'mdi-access-point-network' }}
               </v-icon>
 
-              <span v-if="!isConnected" class="text-medium-emphasis">离线状态，准备就绪</span>
+              <span v-if="!isConnected" class="text-medium-emphasis">离线状态</span>
               <span v-else-if="!isP2PReady" class="font-weight-bold text-success">
                 <template v-if="roomCode === '加密直连'">
                   正在建立无感直连安全通道...
@@ -204,8 +261,8 @@ const handleRegenerateId = () => {
             </div>
 
             <v-btn :color="isConnected ? 'error' : 'success'" variant="elevated" size="small"
-              @click="isConnected ? disconnectServer() : connectToServer()">
-              {{ isConnected ? '断开连接' : '启动信令基站' }}
+              @click="isConnected ? disconnectServer() : connectToServer()" v-if="!isConnected">
+              {{ isConnected ? '断开连接' : '连接服务器' }} <!--连的是server.js搭建的socket.io服务器-->
             </v-btn>
           </v-card-text>
         </v-card>
@@ -221,7 +278,7 @@ const handleRegenerateId = () => {
           <h2 class="text-h4 font-weight-bold mb-2">
             {{ isDragging ? '松开鼠标，即可选定文件' : '将文件拖拽至此' }}
           </h2>
-          <p class="text-medium-emphasis">支持任意格式文件的快速载入</p>
+          <p class="text-medium-emphasis">支持任意格式文件，也可点击上传。支持多选文件。</p>
         </v-card>
 
         <v-expand-transition>
@@ -242,7 +299,8 @@ const handleRegenerateId = () => {
                   </div>
                 </template>
                 <template v-slot:append>
-                  <v-btn icon variant="text" color="error" size="small" @click="removeFile(index)" :disabled="sendStatus.status === 'sending' || sendStatus.status === 'paused'">
+                  <v-btn icon variant="text" color="error" size="small" @click="removeFile(index)"
+                    :disabled="sendStatus.status === 'sending' || sendStatus.status === 'paused'">
                     <v-icon>
                       mdi-trash-can-outline
                     </v-icon>
@@ -267,7 +325,8 @@ const handleRegenerateId = () => {
                   :color="sendStatus.status === 'done' ? 'success' : sendStatus.status === 'error' ? 'error' : 'primary'">
                 </v-progress-linear>
                 <div style="height: 10px;"></div>
-                <div v-if="sendStatus.status === 'paused' || sendStatus.status === 'sending' || sendStatus.status === 'error'">
+                <div
+                  v-if="sendStatus.status === 'paused' || sendStatus.status === 'sending' || sendStatus.status === 'error'">
                   <span class="text-warning font-weight-bold">
                     <v-icon>mdi-alert</v-icon>
                     注意：传输过程中，不可更改队列中的文件。
@@ -325,9 +384,11 @@ const handleRegenerateId = () => {
             <div class="d-flex align-center justify-space-between">
               <div style="overflow: hidden;">
                 <div class="text-caption text-medium-emphasis">唯一标识符 (UUID)</div>
-                <div class="text-caption text-truncate" style="color: #888;" :title="myDeviceId">{{ myDeviceId }}</div>
+                <div class="text-caption text-truncate" style="color: #888;" :title="myDeviceId">{{ deviceIdVisibility ? myDeviceId : '••••••••' }}</div>
               </div>
               <div class="d-flex">
+                <v-btn :icon="deviceIdVisibility ? 'mdi-eye-outline' : 'mdi-eye-off-outline'" @click="deviceIdVisibility = !deviceIdVisibility"
+                  variant="text" size="small" color="primary" :title="deviceIdVisibility ? '点击使UUID不可见' : '点击使UUID可见'"></v-btn>
                 <v-btn icon="mdi-content-copy" variant="text" size="small" color="primary"
                   @click="copyToClipboard(myDeviceId)" title="复制 ID"></v-btn>
                 <v-btn icon="mdi-refresh" variant="text" size="small" color="error" @click="handleRegenerateId"
@@ -385,13 +446,14 @@ const handleRegenerateId = () => {
     <v-dialog v-model="showEditNameDialog" max-width="400">
       <v-card title="修改设备名称">
         <v-card-text>
-          <v-text-field v-model="tempDeviceName" label="设备名称" variant="outlined" autofocus
+          <v-text-field v-model="tempDeviceName" :rules="[rules.required]" label="设备名称" variant="outlined" autofocus
             @keyup.enter="confirmEditName"></v-text-field>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn text="取消" @click="showEditNameDialog = false"></v-btn>
-          <v-btn text="保存" color="primary" @click="confirmEditName"></v-btn>
+          <v-btn variant='elevated' :disabled="!tempDeviceName" text="保存" color="primary"
+            @click="confirmEditName"></v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -399,17 +461,45 @@ const handleRegenerateId = () => {
     <v-dialog v-model="showAddDeviceDialog" max-width="400">
       <v-card title="手动添加信任设备">
         <v-card-text>
-          <v-text-field v-model="tempTargetId" label="对方设备 UUID" variant="outlined" class="mb-2"
-            autofocus></v-text-field>
-          <v-text-field v-model="tempTargetName" label="备注名称" variant="outlined"
+          <v-text-field v-model="tempTargetId" :rules="[rules.required]" label="对方设备 UUID" variant="outlined"
+            class="mb-2" autofocus></v-text-field>
+          <v-text-field v-model="tempTargetName" :rules="[rules.required]" label="备注名称" variant="outlined"
             @keyup.enter="confirmAddDevice"></v-text-field>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn text="取消" @click="showAddDeviceDialog = false"></v-btn>
-          <v-btn text="添加" color="primary" @click="confirmAddDevice"></v-btn>
+          <v-btn :disabled="!tempTargetId || !tempTargetName" variant="elevated" text="添加" color="primary"
+            @click="confirmAddDevice"></v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-dialog v-model="showConfirmDialog" max-width="400">
+      <v-card title="确认操作">
+        <v-card-text class="pt-2">
+          <template v-for="(line, index) in confirmDialogMessage.split('\n')" :key="index">
+            {{ line }}<br />
+          </template>
+          <v-checkbox v-if="showconfirmCheck" v-model="confirmCheck" label="我已知晓以上信息，并确认执行此操作"
+            class="mt-4"></v-checkbox>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn text="取消" @click="confirmDialogAction(false)"></v-btn>
+          <v-btn :disabled="!confirmCheck" text="确定" color="error" variant="elevated" @click="confirmDialogAction(true)"></v-btn>
+        </v-card-actions>
+      </v-card>
+
+    </v-dialog>
+
+    <v-snackbar v-model="showSnackbar" :color="snackbarColor" timeout="3000" location="top">
+      {{ snackbarMessage }}
+      <template v-slot:actions>
+        <v-btn color="white" variant="text" @click="showSnackbar = false">
+          关闭
+        </v-btn>
+      </template>
+    </v-snackbar>
   </v-container>
 </template>

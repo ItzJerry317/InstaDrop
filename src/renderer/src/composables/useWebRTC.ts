@@ -44,6 +44,9 @@ export function useWebRTC() {
   // 信任设备列表
   const trustedDevices = ref<TrustedDevice[]>(JSON.parse(localStorage.getItem('instadrop_trusted') || '[]'))
 
+  // 初始化信任设备在线状态
+  trustedDevices.value.forEach(d => d.isOnline = false)
+
   // 监听变动并持久化
   watch(myDeviceId, (val) => localStorage.setItem('instadrop_did', val))
   watch(myDeviceName, (val) => localStorage.setItem('instadrop_dname', val))
@@ -61,6 +64,7 @@ export function useWebRTC() {
   // === 身份管理方法 ===
   const regenerateDeviceId = () => {
     myDeviceId.value = generateUUID()
+    trustedDevices.value = [] // 重置信任设备列表
     disconnectServer()
     setTimeout(connectToServer, 500) // 重连以更新服务器记录
     return myDeviceId.value
@@ -114,7 +118,10 @@ export function useWebRTC() {
   // === 核心信令逻辑 ===
   const connectToServer = () => {
     // 连接你的 Node 服务器
-    socket = io('http://localhost:3000')
+    socket = io('http://localhost:3000', {
+      reconnectionAttempts: 3,
+      reconnectionDelay: 2000
+    })
 
     socket.on('connect', () => {
       isConnected.value = true
