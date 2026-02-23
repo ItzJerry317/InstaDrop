@@ -109,7 +109,6 @@ const tempTargetId = ref('')
 const tempTargetName = ref('')
 const showEditDeviceNameDialog = ref(false)
 const tempEditDeviceId = ref('')
-const tempEditDeviceName = ref('')
 const tempEditDeviceOriginalName = ref('')
 const tempEditDeviceRemark = ref('')
 
