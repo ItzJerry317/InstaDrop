@@ -104,6 +104,21 @@ const resetNetworkSettings = () => {
   }
 }
 
+// === 存储路径设置 ===
+const defaultPathText = '默认 (下载/Instadrop)'
+const downloadPath = ref(localStorage.getItem('instadrop_save_path') || defaultPathText)
+
+const changeDownloadPath = async () => {
+  // 调用 Electron API 打开文件夹选择器
+  const path = await window.myElectronAPI?.selectFolder()
+  
+  if (path) {
+    downloadPath.value = path
+    localStorage.setItem('instadrop_save_path', path)
+    triggerSnackbar('默认存储位置已更新', 'success')
+  }
+}
+
 // 初始化时应用一次主题
 onMounted(() => {
   applyTheme(themePreference.value)
@@ -134,10 +149,10 @@ onMounted(() => {
 
         <v-divider></v-divider>
 
-        <v-list-item title="默认存储路径" subtitle="C:\Users\Public\Downloads\Instadrop">
+        <v-list-item title="默认存储路径" :subtitle="downloadPath">
           <template v-slot:prepend><v-icon icon="mdi-folder-download" color="grey"></v-icon></template>
           <template v-slot:append>
-            <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-folder-edit">更改路径</v-btn>
+            <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-folder-edit" @click="changeDownloadPath">更改路径</v-btn>
           </template>
         </v-list-item>
 

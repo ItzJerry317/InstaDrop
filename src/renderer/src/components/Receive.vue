@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useWebRTC } from '../composables/useWebRTC'
+import { savePath, themePreference } from '../store/localStorageRead'
 
 // 引入核心逻辑
 const {
@@ -26,6 +27,7 @@ const {
   receiveProgress,
   receiveSpeed,
   receiveStatus,
+
 } = useWebRTC()
 
 // === 接收状态 (TODO: 下一步我们需要在 useWebRTC.ts 中真正实现这些状态) ===
@@ -254,8 +256,11 @@ const formatSize = (bytes: number) => {
         <div class="d-flex justify-center mt-4">
           <v-btn variant="text" size="small" color="grey" prepend-icon="mdi-folder-marker-outline"
             @click="openDownloadsFolder">
-            点击打开存储位置: 下载/Instadrop
+            点击打开存储位置
           </v-btn>
+        </div>
+        <div class="text-caption text-medium-emphasis d-flex justify-center mt-2">
+          <span>你可以前往 设置 里修改默认存储位置</span>
         </div>
       </v-col>
 

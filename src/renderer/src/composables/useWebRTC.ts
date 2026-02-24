@@ -501,8 +501,12 @@ const handleFileMeta = async (meta: { name: string, size: number }) => {
   lastReceiveTime = Date.now()
   lastReceiveOffset = 0
 
+  // 获取用户设置的路径（如果有）
+  const savedPath = localStorage.getItem('instadrop_save_path')
+  const targetPath = (savedPath && savedPath !== '默认 (下载/Instadrop)') ? savedPath : undefined
+
   // 调用 Electron 主进程：创建一个新文件写入流
-  await window.myElectronAPI?.startReceiveFile(meta.name, meta.size)
+  await window.myElectronAPI?.startReceiveFile(meta.name, meta.size, targetPath)
 }
 
 const handleFileChunk = async (chunk: ArrayBuffer) => {

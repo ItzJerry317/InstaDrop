@@ -8,7 +8,8 @@ import {
    stunUrl, 
    turnUrl, 
    turnUser, 
-   turnPass } 
+   turnPass, 
+   savePath} 
    from '../store/localStorageRead'
 
 
@@ -118,6 +119,10 @@ const handlePing = async () => {
           <div class="d-flex justify-space-between mb-2">
             <span>TURN 服务器密码：</span>
             <span class="text-primary font-weight-bold">{{ turnPass }}</span>
+          </div>
+          <div class="d-flex justify-space-between mb-2">
+            <span>下载文件默认保存路径：</span>
+            <span class="text-primary font-weight-bold">{{ savePath }}</span>
           </div>
         </v-card-text>
         <v-card-text v-else>

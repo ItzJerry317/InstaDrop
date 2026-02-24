@@ -7,3 +7,4 @@ export const stunUrl = ref(localStorage.getItem('instadrop_stun_url') || 'stun:s
 export const turnUrl = ref(localStorage.getItem('instadrop_turn_url') || '未设置')
 export const turnUser = ref(localStorage.getItem('instadrop_turn_user') || '未设置')
 export const turnPass = ref(localStorage.getItem('instadrop_turn_pass') || '未设置')
+export const savePath = ref(localStorage.getItem('instadrop_save_path') || '默认 (下载/Instadrop)')

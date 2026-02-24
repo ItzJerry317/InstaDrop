@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, nativeTheme} from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeTheme, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -70,6 +70,19 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  ipcMain.handle('select-folder', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory', 'promptToCreate'],
+      title: '选择保存位置'
+    })
+    if (canceled) {
+      return null
+    } else {
+      return filePaths[0]
+    }
+  })
+
+
   // IPC test
   ipcMain.handle('ping', () => {
     return 'pong'
@@ -87,12 +100,12 @@ app.whenReady().then(() => {
   // 获取文件基本信息 (名字、大小)
   ipcMain.handle('get-file-info', async (_event, filePath: string) => {
     const stats = await fs.promises.stat(filePath)
-    return { 
-      name: path.basename(filePath), 
-      size: stats.size 
+    return {
+      name: path.basename(filePath),
+      size: stats.size
     }
   })
-  
+
   // 核心：读取文件的指定“切片” (比如从第 1024 字节开始，读取 64KB 数据)
   ipcMain.handle('read-file-chunk', async (_event, filePath: string, offset: number, chunkSize: number) => {
     const fileHandle = await fs.promises.open(filePath, 'r')
@@ -100,9 +113,9 @@ app.whenReady().then(() => {
     // 读取数据填入 buffer
     const { bytesRead } = await fileHandle.read(buffer, 0, chunkSize, offset)
     await fileHandle.close()
-  
+
     // 返回实际读到的字节 (Electron 会自动把它转成前端可用的 Uint8Array)
-    return buffer.slice(0, bytesRead) 
+    return buffer.slice(0, bytesRead)
   })
 
   ipcMain.on('close-window', () => {
@@ -142,31 +155,38 @@ app.whenReady().then(() => {
   });
 
   // ==========================================
-  // 📁 文件接收 API (Receive Logic)
+  //  文件接收 API (Receive Logic)
   // ==========================================
 
   // 1. 开始接收：创建文件流
-  ipcMain.handle('start-receive-file', async (_event, fileName: string, fileSize: number) => {
+  ipcMain.handle('start-receive-file', async (_event, fileName: string, _fileSize: number, saveDirectory?: string) => {
     try {
       const downloadsPath = app.getPath('downloads')
       const instadropPath = path.join(downloadsPath, 'Instadrop')
+      let targetFolder = ''
+
+      if (saveDirectory && fs.existsSync(saveDirectory)) {
+        targetFolder = saveDirectory
+      } else {
+        const downloadsPath = app.getPath('downloads')
+        targetFolder = path.join(downloadsPath, 'Instadrop')
+      }
 
       // 确保 Instadrop 文件夹存在
-      if (!fs.existsSync(instadropPath)) {
-        console.log('Instadrop 文件夹不存在，正在创建...')
-        fs.mkdirSync(instadropPath, { recursive: true })
+      if (!fs.existsSync(targetFolder)) {
+        fs.mkdirSync(targetFolder, { recursive: true })
       }
 
       // 处理文件名冲突 (自动重命名: file.txt -> file (1).txt)
       let finalFileName = fileName
       let counter = 1
-      let fullPath = path.join(instadropPath, finalFileName)
+      let fullPath = path.join(targetFolder, finalFileName)
       const ext = path.extname(fileName)
       const name = path.basename(fileName, ext)
 
       while (fs.existsSync(fullPath)) {
         finalFileName = `${name} (${counter})${ext}`
-        fullPath = path.join(instadropPath, finalFileName)
+        fullPath = path.join(targetFolder, finalFileName)
         counter++
       }
 
