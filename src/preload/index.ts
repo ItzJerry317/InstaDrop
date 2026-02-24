@@ -29,7 +29,7 @@ const electronAPI = {
   startReceiveFile: (fileName: string, fileSize: number, savePath?: string) => ipcRenderer.invoke('start-receive-file', fileName, fileSize, savePath),
   receiveFileChunk: (chunk: ArrayBuffer) => ipcRenderer.invoke('receive-file-chunk', chunk),
   finishReceiveFile: () => ipcRenderer.invoke('finish-receive-file'),
-  openDownloadsFolder: () => ipcRenderer.invoke('open-downloads-folder'),
+  openDownloadsFolder: (path?: string) => ipcRenderer.invoke('open-downloads-folder', path),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
 };
 

@@ -18,7 +18,7 @@ declare global {
       startReceiveFile: (fileName: string, fileSize: number, savePath?: string) => Promise<void>
       receiveFileChunk: (chunk: ArrayBuffer) => Promise<void>
       finishReceiveFile: () => Promise<void>
-      openDownloadsFolder: () => Promise<void>
+      openDownloadsFolder: (path?: string) => Promise<void>
       selectFolder: () => Promise<string | null>
     }
   }

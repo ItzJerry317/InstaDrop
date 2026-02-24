@@ -161,8 +161,6 @@ app.whenReady().then(() => {
   // 1. 开始接收：创建文件流
   ipcMain.handle('start-receive-file', async (_event, fileName: string, _fileSize: number, saveDirectory?: string) => {
     try {
-      const downloadsPath = app.getPath('downloads')
-      const instadropPath = path.join(downloadsPath, 'Instadrop')
       let targetFolder = ''
 
       if (saveDirectory && fs.existsSync(saveDirectory)) {
@@ -239,17 +237,25 @@ app.whenReady().then(() => {
   })
 
   // 4. 打开下载文件夹
-  ipcMain.handle('open-downloads-folder', () => {
-    // 如果有刚接收的文件，直接定位选中它；否则只打开文件夹
+  ipcMain.handle('open-downloads-folder', (_event, customPath?: string) => {
+    // 情况 A: 刚刚接收完文件，且文件存在 -> 优先在文件夹里选中该文件
     if (currentReceivedPath && fs.existsSync(currentReceivedPath)) {
       shell.showItemInFolder(currentReceivedPath)
+      return
+    }
+
+    // 情况 B: 用户设置了自定义路径，且路径存在 -> 打开该文件夹
+    if (customPath && fs.existsSync(customPath)) {
+      shell.openPath(customPath)
+      return
+    }
+
+    // 情况 C: 兜底 -> 打开默认的 下载/Instadrop 文件夹
+    const defaultInstadropPath = path.join(app.getPath('downloads'), 'Instadrop')
+    if (fs.existsSync(defaultInstadropPath)) {
+      shell.openPath(defaultInstadropPath)
     } else {
-      const folder = path.join(app.getPath('downloads'), 'Instadrop')
-      if (fs.existsSync(folder)) {
-        shell.openPath(folder)
-      } else {
-        shell.openPath(app.getPath('downloads'))
-      }
+      shell.openPath(app.getPath('downloads'))
     }
   })
 

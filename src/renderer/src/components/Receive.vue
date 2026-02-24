@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useWebRTC } from '../composables/useWebRTC'
-import { savePath, themePreference } from '../store/localStorageRead'
 
 // 引入核心逻辑
 const {
@@ -42,9 +41,9 @@ const isJoining = ref(false)
 
 const handleJoin = () => {
   if (tempRoomCode.value.length !== 6) return
-  
+
   isJoining.value = true
-  
+
   // 调用底层的加入房间逻辑
   // 注意：加入房间是一个异步过程（发请求 -> 等服务器响应 -> 等 P2P 建立）
   // joinRoom 目前是“发后即忘”的，我们通过监听 P2P 状态来判断是否成功
@@ -85,8 +84,8 @@ const handleDisconnect = () => {
   if (roomCode.value === '加密直连') {
     // 场景 A：如果是直连，我们希望“退出直连模式，回到公开模式”
     // 调用 refreshShareCode 是最简单的“重置”方式，它会销毁直连房间并给你一个新的 6 位码
-    refreshShareCode() 
-    
+    refreshShareCode()
+
     // 如果你想保留原来的 6 位码不换，目前 Server 端不支持。
     // 因为 Server 端只有 create-room (建新房) 和 disconnect (全删)。
     // 所以目前 refreshShareCode() 是退出直连并恢复服务的唯一路径。
@@ -110,10 +109,16 @@ const copyToClipboard = async (text: string) => {
 
 // 打开下载文件夹 (需要 Electron 主进程支持，我们稍后实现)
 const openDownloadsFolder = () => {
+  // 从 LocalStorage 读取用户设置的路径
+  const savedPath = localStorage.getItem('instadrop_save_path')
+
+  // 处理“默认”文本 (如果用户没改过，内容是 '默认 (下载/Instadrop)')
+  const targetPath = (savedPath && savedPath !== '默认 (下载/Instadrop)') ? savedPath : undefined
+
   if (window.myElectronAPI?.openDownloadsFolder) {
-    window.myElectronAPI.openDownloadsFolder()
+    window.myElectronAPI.openDownloadsFolder(targetPath)
   } else {
-    alert('正在打开默认下载路径...')
+    console.log('正在打开默认下载路径...')
   }
 }
 
@@ -180,9 +185,10 @@ const formatSize = (bytes: number) => {
               <span v-else class="font-weight-bold">已成功建立连接</span>
             </div>
 
-            <v-btn :disabled="connectBtnDisabled" :color="isConnected ? 'error' : 'success'" variant="elevated" size="small"
-              @click="if (isConnected) {handleDisconnect()}
-              else {connectToServer(true); disableConnectBtnTemporarily()}" v-if="connectedPeerId !== null || !isConnected">
+            <v-btn :disabled="connectBtnDisabled" :color="isConnected ? 'error' : 'success'" variant="elevated"
+              size="small" @click="if (isConnected) { handleDisconnect() }
+              else { connectToServer(true); disableConnectBtnTemporarily() }"
+              v-if="connectedPeerId !== null || !isConnected">
               {{ isConnected ? '断开连接' : connectBtnDisabled ? '连接中...' : '连接服务器' }}
             </v-btn>
           </v-card-text>
@@ -198,7 +204,8 @@ const formatSize = (bytes: number) => {
               <v-otp-input v-model="tempRoomCode" length="6" :disabled="!isConnected || isJoining"></v-otp-input>
             </div>
 
-            <v-btn :disabled="tempRoomCode.length < 6 || !isConnected" :loading="isJoining" class="mt-4" v-if="isConnected" @click="handleJoin">连接</v-btn>
+            <v-btn :disabled="tempRoomCode.length < 6 || !isConnected" :loading="isJoining" class="mt-4"
+              v-if="isConnected" @click="handleJoin">连接</v-btn>
 
             <div v-if="!isConnected" class="text-h4 text-grey font-weight-bold">
               请先连接到信令服务器
@@ -228,7 +235,7 @@ const formatSize = (bytes: number) => {
             </div>
 
             <v-progress-linear :model-value="receiveProgress" height="5" rounded
-            :color="receiveStatus === 'done' ? 'success' : receiveStatus === 'error' ? 'error' : 'primary'">
+              :color="receiveStatus === 'done' ? 'success' : receiveStatus === 'error' ? 'error' : 'primary'">
             </v-progress-linear>
 
             <div class="d-flex justify-space-between mt-2 text-caption font-weight-bold">
