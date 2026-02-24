@@ -16,6 +16,7 @@ const { connectToServer, disconnectServer, connectionError } = useWebRTC()
 const showSnackbar = ref(false)
 const snackbarMessage = ref('')
 const snackbarColor = ref('')
+const isDev = import.meta.env.DEV
 
 // 窗口状态
 const checkWindowStatus = async () => {
@@ -96,7 +97,7 @@ onUnmounted(() => {
           @click="currentTab = 'receive'" color="primary">
         </v-list-item>
 
-        <v-list-item prepend-icon="mdi-test-tube" title="测试" value="test" :active="currentTab === 'test'"
+        <v-list-item v-if="isDev" prepend-icon="mdi-test-tube" title="测试" value="test" :active="currentTab === 'test'"
           @click="currentTab = 'test'" color="primary"></v-list-item>
 
         <v-list-item prepend-icon="mdi-cog" title="设置" value="settings" :active="currentTab === 'settings'"
