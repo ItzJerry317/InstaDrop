@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useWebRTC } from '../composables/useWebRTC'
 
 const {
@@ -7,7 +7,6 @@ const {
   isConnected,
   isP2PReady,
   connectToServer,
-  disconnectServer,
   sendFile,
   fileProgress,
   currentFile,
@@ -28,7 +27,9 @@ const {
   connectedPeerId,
   connectedPeerName,
   disconnectPeer,
-  updateDeviceRemark
+  updateDeviceRemark,
+  refreshShareCode,
+  createRoom
 } = useWebRTC()
 
 interface DroppedFile {
@@ -285,6 +286,25 @@ const leaveRoom = () => {
   disconnectPeer()
 }
 
+const handleDisconnect = () => {
+  // 先断开本地 P2P
+  disconnectPeer()
+
+  if (roomCode.value === '加密直连') {
+    // 场景 A：如果是直连，我们希望“退出直连模式，回到公开模式”
+    // 调用 refreshShareCode 是最简单的“重置”方式，它会销毁直连房间并给你一个新的 6 位码
+    refreshShareCode() 
+    
+    // 如果你想保留原来的 6 位码不换，目前 Server 端不支持。
+    // 因为 Server 端只有 create-room (建新房) 和 disconnect (全删)。
+    // 所以目前 refreshShareCode() 是退出直连并恢复服务的唯一路径。
+  } else {
+    // 场景 B：如果是 6 位码连接
+    // 为了安全，踢掉陌生人后最好换个码
+    refreshShareCode()
+  }
+}
+
 onMounted(() => {
   // 检查是否已经同意过免责声明
   const hasAccepted = localStorage.getItem('instadrop_disclaimer_accepted') === 'true'
@@ -293,14 +313,11 @@ onMounted(() => {
     // 没同意过，弹出强制提示框（此时不连接服务器）
     showDisclaimerDialog.value = true
   } else {
-    // 已经同意过，正常启动服务
-    connectToServer()
-    console.log('onMounted: 正在连接信令服务器...')
+    // 如果已经连上了，而且还没房号，那就建一个
+    setTimeout(() => {
+       if (isConnected.value && !roomCode.value) createRoom()
+    }, 500)
   }
-})
-
-onUnmounted(() => {
-  disconnectServer()
 })
 </script>
 
@@ -330,7 +347,11 @@ onUnmounted(() => {
             </div>
 
             <v-btn :color="isConnected ? 'error' : 'success'" variant="elevated" size="small"
-              @click="isConnected ? leaveRoom() : connectToServer()">
+              @click="
+                if (!isConnected) connectToServer();
+                else if (isP2PReady) handleDisconnect(); // 有人连着时，只踢人
+                else refreshShareCode(); // 没人连着时，刷新取件码
+              ">
               {{ !isConnected ? '连接服务器' : (isP2PReady ? '断开连接' : '刷新取件码') }}
             </v-btn>
           </v-card-text>

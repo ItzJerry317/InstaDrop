@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import Send from './components/Send.vue'
 import TestPanel from './components/TestPanel.vue'
 import Settings from './components/Settings.vue'
 import { useTheme } from 'vuetify'
 import { themePreference } from './store/localStorageRead'
+import { useWebRTC } from './composables/useWebRTC'
 
 const currentTab = ref('send')
 const drawer = ref(false)
 const windowStatus = ref('mdi-window-maximize')
+const { connectToServer, disconnectServer } = useWebRTC()
 
 // 窗口状态
 const checkWindowStatus = async () => {
@@ -47,6 +49,13 @@ onMounted(() => {
     console.log(`窗口状态变化: ${newState}`)
     windowStatus.value = newState === 'maximized' ? 'mdi-window-restore' : 'mdi-window-maximize'
   })
+  if (localStorage.getItem('instadrop_disclaimer_accepted') === 'true') {
+    connectToServer()
+  }
+})
+
+onUnmounted(() => {
+  disconnectServer()
 })
 </script>
 

@@ -13,6 +13,7 @@ const isCancelled = ref(false)
 const connectedPeerId = ref<string | null>(null)
 const connectedPeerName = ref<string | null>(null)
 const transferSpeed = ref('0 B/s')
+const currentRoomId = ref<string | null>(null)
 
 // === 接收端状态定义 ===
 const receiveStatus = ref<'idle' | 'receiving' | 'done' | 'error'>('idle')
@@ -87,7 +88,7 @@ const getRTCConfig = (): RTCConfiguration => {
 }
 
 // 初始化信任设备在线状态
-  trustedDevices.value.forEach(d => d.isOnline = false)
+trustedDevices.value.forEach(d => d.isOnline = false)
 
 // === 身份管理方法 ===
 const regenerateDeviceId = () => {
@@ -190,6 +191,7 @@ const setupDataChannel = (channel: RTCDataChannel) => {
 const handleDisconnect = (reason: string) => {
   isP2PReady.value = false
   connectedPeerId.value = null
+  connectedPeerName.value = null
   if (sendStatus.value.status === 'sending' || sendStatus.value.status === 'paused') {
     sendStatus.value = { status: 'error', message: reason }
     transferSpeed.value = '0 B/s'
@@ -198,7 +200,7 @@ const handleDisconnect = (reason: string) => {
 
 // 主动断开当前的 P2P 对等连接，并重新申请新房间
 const disconnectPeer = () => {
-  // 1. 彻底关闭物理层的 WebRTC 连接和数据通道
+  // 关闭 WebRTC 连接和数据通道
   if (dataChannel) {
     dataChannel.close()
     dataChannel = null
@@ -208,23 +210,24 @@ const disconnectPeer = () => {
     peerConnection = null
   }
 
-  // 2. 清理状态（复用现有的清理逻辑）
   handleDisconnect('已主动断开连接')
+}
 
-  // 给 UI 一个过渡状态，防止瞬间闪烁
-  roomCode.value = '获取中...'
-  socket?.connect() // 重新连接服务器，触发新的房间创建流程
+// 刷新房间方法
+const refreshShareCode = () => {
+  console.log('正在刷新取件码...')
+  if (isP2PReady.value) {
+    console.log('正在断开当前连接以刷新取件码...')
+    disconnectPeer() // 先断开当前连接
+  }
+  roomCode.value = '获取中'
 
-  if (socket) {
-    socket.disconnect() // 触发服务端清理老房间
-
-    // 延迟 100 毫秒重新连接，给服务端一点清理内存的时间
-    setTimeout(() => {
-      socket?.connect()
-      // 注意：无需手动 emit('create-room')！
-      // socket 连接成功后，会自动触发 connectToServer 里的 socket.on('connect') 
-      // 那里会自动上报设备状态并重新索要新取件码。
-    }, 100)
+  if (socket && socket.connected) {
+    socket.emit('create-room')
+    // 服务端逻辑通常是：同一个 Socket ID 再发 create-room，会销毁旧房间并创建新房间
+  } else {
+    // 如果没连上，尝试重连
+    connectToServer()
   }
 }
 
@@ -284,12 +287,14 @@ const connectToServer = () => {
 
   socket.on('room-created', (code: string) => {
     roomCode.value = code
+    currentRoomId.value = code
   })
 
   // === 新增：处理无感直连请求 ===
   socket.on('direct-connection-ready', ({ roomId, role, peerDeviceId, peerDeviceName }) => {
     console.log(`[Direct] 收到直连请求，房间: ${roomId}, 角色: ${role}`)
     roomCode.value = '加密直连' // UI 显示
+    currentRoomId.value = roomId // 记录当前真实房间 ID
     startWebRTC(role === 'host', roomId) // 启动 WebRTC
 
     // 连上了，新增信任信息
@@ -500,7 +505,7 @@ export function useWebRTC() {
     connectToServer, disconnectServer,
     regenerateDeviceId, updateDeviceName,
     addTrustedDevice, removeTrustedDevice, connectToDevice, disconnectPeer, updateDeviceRemark,
-    createRoom, joinRoom,
+    createRoom, joinRoom, refreshShareCode,
     // 传输控制
     sendFile, resetTransfer, pauseTransfer, resumeTransfer, cancelTransfer, transferSpeed
   }
