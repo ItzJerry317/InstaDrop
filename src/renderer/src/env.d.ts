@@ -15,6 +15,10 @@ declare global {
       onWindowStateChanged: (callback: (state: string) => void) => void;
       getFileInfo: (filePath: string) => Promise<{name: string, size: number}>;
       readFileChunk: (filePath: string, offset: number, chunkSize: number) => Promise<Uint8Array>;
+      startReceiveFile: (fileName: string, fileSize: number) => Promise<void>
+      receiveFileChunk: (chunk: ArrayBuffer) => Promise<void>
+      finishReceiveFile: () => Promise<void>
+      openDownloadsFolder: () => Promise<void>
     }
   }
 }

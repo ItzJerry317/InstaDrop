@@ -171,8 +171,16 @@ const setupDataChannel = (channel: RTCDataChannel) => {
   }
 
   channel.onmessage = (e) => {
-    // 这里处理握手消息，如果收到 identity-handshake，就存入信任列表
+    const data = e.data
+    
+    // 1. 处理二进制数据 (文件切片)
+    if (data instanceof ArrayBuffer) {
+      handleFileChunk(data)
+      return
+    }
+
     try {
+      // 这里处理握手消息，如果收到 identity-handshake，就存入信任列表
       const msg = JSON.parse(e.data as string)
       if (msg.type === 'identity-handshake') {
         console.log('收到身份握手:', msg.name)
@@ -180,8 +188,18 @@ const setupDataChannel = (channel: RTCDataChannel) => {
         connectedPeerId.value = msg.id // 记录当前连接的设备 ID
         connectedPeerName.value = msg.name // 记录当前连接的设备名称
       }
+      else if (msg.type === 'meta') {
+        // 收到文件头 准备接收
+        console.log('收到文件发送请求:', msg.name, msg.size)
+        handleFileMeta(msg)
+      } 
+      else if (msg.type === 'eof') {
+        // 收到结束符 接收完成
+        console.log('文件接收完成')
+        handleFileTransferDone()
+      }
     } catch (err) {
-      // 忽略非 JSON 消息 (可能是二进制文件片)
+      console.error('消息解析失败', err)
     }
   }
 
@@ -276,6 +294,13 @@ const connectToServer = (createRoomStat?: boolean) => {
     reconnectionDelay: 2000
   })
 
+  socket.on('join-error', (msg: string) => {
+    console.error('加入房间失败:', msg)
+    connectionError.value = `加入房间失败: ${msg}`
+
+    roomCode.value = ''
+  })
+
   socket.on('connect', async () => {
     isConnected.value = true
     // 连上后立即上报身份
@@ -304,17 +329,17 @@ const connectToServer = (createRoomStat?: boolean) => {
       socket?.connect()
     }
     if (reason !== 'io client disconnect') {
-       connectionError.value = `服务器连接已断开 (${reason})`
+      connectionError.value = `服务器连接已断开 (${reason})`
     }
     // 不要清空 P2P 相关的状态 (isP2PReady)，因为如果是直连传文件，
     // 信令服务器断了，P2P 连接还活着
-    roomCode.value = '' 
+    roomCode.value = ''
     trustedDevices.value.forEach(d => d.isOnline = false)
   })
 
   socket.on('connect_error', (error) => {
     console.log('⚠️ 连接信令服务器失败:', error.message)
-    connectionError.value = error.message
+    connectionError.value = '连接信令服务器失败：' + error.message
     isConnected.value = false
     trustedDevices.value.forEach(d => d.isOnline = false)
   })
@@ -356,7 +381,6 @@ const connectToServer = (createRoomStat?: boolean) => {
   // === 通用 WebRTC 信令 ===
   socket.on('signal', async (data: any) => {
     const payload = data.payload
-    if (!peerConnection) return
 
     if (payload.type === 'offer') {
       // 如果接收方收到 Offer 时发现还没有对等连接，则立刻初始化
@@ -401,6 +425,7 @@ const joinRoom = (code: string) => {
   }
 }
 
+
 // 封装 WebRTC 启动逻辑 (复用)
 const startWebRTC = async (isPolite: boolean, roomId: string) => {
   isP2PReady.value = false
@@ -414,20 +439,78 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
     }
   }
 
-  dataChannel = peerConnection.createDataChannel('instadrop-file')
-  setupDataChannel(dataChannel)
-
-  peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      socket?.emit('signal', { roomCode: roomId, payload: { type: 'candidate', candidate: event.candidate } })
+  if (isPolite) {
+    // 我是发送方 (Host)：主动创建通道
+    dataChannel = peerConnection.createDataChannel('instadrop-file')
+    setupDataChannel(dataChannel)
+  } else {
+    // 我是接收方 (Client)：等待对方创建通道
+    peerConnection.ondatachannel = (event) => {
+      console.log('收到对方建立的数据通道')
+      dataChannel = event.channel
+      setupDataChannel(dataChannel)
     }
   }
+
+  peerConnection.onicecandidate = (event) => { /* ... */ }
 
   if (isPolite) {
     const offer = await peerConnection.createOffer()
     await peerConnection.setLocalDescription(offer)
     socket?.emit('signal', { roomCode: roomId, payload: { type: 'offer', offer: offer } })
   }
+}
+
+// === 接收逻辑 ===
+let lastReceiveTime = Date.now()
+let lastReceiveOffset = 0
+
+const handleFileMeta = async (meta: { name: string, size: number }) => {
+  // 更新 UI 状态
+  receiveStatus.value = 'receiving'
+  currentReceivingFile.value = { 
+    name: meta.name, 
+    size: meta.size, 
+    receivedSize: 0 
+  }
+  receiveProgress.value = 0
+  receiveSpeed.value = '0 B/s'
+  
+  // 重置速度计算器
+  lastReceiveTime = Date.now()
+  lastReceiveOffset = 0
+  
+  // 调用 Electron 主进程：创建一个新文件写入流
+  await window.myElectronAPI?.startReceiveFile(meta.name, meta.size)
+}
+
+const handleFileChunk = async (chunk: ArrayBuffer) => {
+  if (!currentReceivingFile.value) return
+  
+  // 更新进度
+  const chunkSize = chunk.byteLength
+  currentReceivingFile.value.receivedSize += chunkSize
+  receiveProgress.value = (currentReceivingFile.value.receivedSize / currentReceivingFile.value.size) * 100
+  
+  // 调用 Electron 主进程：追加写入数据
+  await window.myElectronAPI?.receiveFileChunk(chunk)
+
+  // 计算速度 (每 500ms 更新一次 UI)
+  const now = Date.now()
+  if (now - lastReceiveTime >= 500) {
+    const speed = ((currentReceivingFile.value.receivedSize - lastReceiveOffset) / (now - lastReceiveTime)) * 1000
+    receiveSpeed.value = formatSpeed(speed)
+    lastReceiveTime = now
+    lastReceiveOffset = currentReceivingFile.value.receivedSize
+  }
+}
+
+const handleFileTransferDone = async () => {
+  receiveStatus.value = 'done'
+  receiveSpeed.value = '0 B/s'
+  receiveProgress.value = 100
+  // 调用 Electron 主进程：关闭文件流
+  await window.myElectronAPI?.finishReceiveFile()
 }
 
 // 去掉 new Promise 包装，直接声明 async 函数

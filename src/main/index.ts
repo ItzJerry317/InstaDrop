@@ -10,6 +10,9 @@ import path from 'path'
 chalk.level = 2;
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns')
 
+let currentWriteStream: fs.WriteStream | null = null
+let currentReceivedPath: string = ''
+
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
@@ -137,6 +140,97 @@ app.whenReady().then(() => {
       }
     }
   });
+
+  // ==========================================
+  // 📁 文件接收 API (Receive Logic)
+  // ==========================================
+
+  // 1. 开始接收：创建文件流
+  ipcMain.handle('start-receive-file', async (_event, fileName: string, fileSize: number) => {
+    try {
+      const downloadsPath = app.getPath('downloads')
+      const instadropPath = path.join(downloadsPath, 'Instadrop')
+
+      // 确保 Instadrop 文件夹存在
+      if (!fs.existsSync(instadropPath)) {
+        fs.mkdirSync(instadropPath, { recursive: true })
+      }
+
+      // 处理文件名冲突 (自动重命名: file.txt -> file (1).txt)
+      let finalFileName = fileName
+      let counter = 1
+      let fullPath = path.join(instadropPath, finalFileName)
+      const ext = path.extname(fileName)
+      const name = path.basename(fileName, ext)
+
+      while (fs.existsSync(fullPath)) {
+        finalFileName = `${name} (${counter})${ext}`
+        fullPath = path.join(instadropPath, finalFileName)
+        counter++
+      }
+
+      currentReceivedPath = fullPath
+      // 创建写入流
+      currentWriteStream = fs.createWriteStream(fullPath)
+      console.log('开始写入文件:', fullPath)
+      return { success: true, path: fullPath }
+    } catch (error) {
+      console.error('创建文件失败:', error)
+      throw error
+    }
+  })
+
+  // 2. 接收切片：写入流
+  ipcMain.handle('receive-file-chunk', async (_event, chunk: ArrayBuffer) => {
+    if (!currentWriteStream) {
+      throw new Error('没有活动的文件写入流')
+    }
+
+    // 将 ArrayBuffer 转为 Node.js Buffer
+    const buffer = Buffer.from(chunk)
+
+    // 处理背压 (Backpressure)：如果缓冲区满了，等待 'drain' 事件再继续
+    // 这对于大文件传输至关重要，防止内存泄漏
+    return new Promise<void>((resolve, reject) => {
+      const canContinue = currentWriteStream?.write(buffer)
+      if (canContinue) {
+        resolve()
+      } else {
+        currentWriteStream?.once('drain', resolve)
+        currentWriteStream?.once('error', reject)
+      }
+    })
+  })
+
+  // 3. 接收完成：关闭流
+  ipcMain.handle('finish-receive-file', async () => {
+    return new Promise<void>((resolve) => {
+      if (currentWriteStream) {
+        currentWriteStream.end(() => {
+          console.log('文件写入完成:', currentReceivedPath)
+          currentWriteStream = null
+          resolve()
+        })
+      } else {
+        resolve()
+      }
+    })
+  })
+
+  // 4. 打开下载文件夹
+  ipcMain.handle('open-downloads-folder', () => {
+    // 如果有刚接收的文件，直接定位选中它；否则只打开文件夹
+    if (currentReceivedPath && fs.existsSync(currentReceivedPath)) {
+      shell.showItemInFolder(currentReceivedPath)
+    } else {
+      const folder = path.join(app.getPath('downloads'), 'Instadrop')
+      if (fs.existsSync(folder)) {
+        shell.openPath(folder)
+      } else {
+        shell.openPath(app.getPath('downloads'))
+      }
+    }
+  })
 
   createWindow()
   console.log(chalk.green('主进程已启动'))
