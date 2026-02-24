@@ -1,5 +1,6 @@
 import { ref, watch } from 'vue'
 import { io, Socket } from 'socket.io-client'
+import { is } from '@electron-toolkit/utils'
 // 更改为全局变量
 
 // === 发送端状态定义 ===
@@ -95,7 +96,7 @@ const regenerateDeviceId = () => {
   myDeviceId.value = generateUUID()
   trustedDevices.value = [] // 重置信任设备列表
   disconnectServer()
-  setTimeout(connectToServer, 500) // 重连以更新服务器记录
+  setTimeout(() => connectToServer(true), 500) // 重连以更新服务器记录
   return myDeviceId.value
 }
 
@@ -230,8 +231,8 @@ const refreshShareCode = () => {
     socket.emit('create-room')
     // 服务端逻辑通常是：同一个 Socket ID 再发 create-room，会销毁旧房间并创建新房间
   } else {
-    // 如果没连上，尝试重连
-    connectToServer()
+    // 如果没连上，尝试重连并创建房间
+    connectToServer(true)
   }
 }
 
@@ -265,7 +266,7 @@ const connectToDevice = (targetDeviceId: string) => {
 
 // === 连接管理 ===
 // === 核心信令逻辑 ===
-const connectToServer = () => {
+const connectToServer = (createRoomStat?: boolean) => {
   // 动态读取信令服务器地址
   const signalingUrl = localStorage.getItem('instadrop_signaling_url') || 'http://localhost:3000' // !! dev temp
 
@@ -275,7 +276,7 @@ const connectToServer = () => {
     reconnectionDelay: 2000
   })
 
-  socket.on('connect', () => {
+  socket.on('connect', async () => {
     isConnected.value = true
     // 连上后立即上报身份
     socket?.emit('device-online', {
@@ -283,8 +284,12 @@ const connectToServer = () => {
       deviceName: myDeviceName.value
     })
 
-    // 不再自动创建房间，由用户按需触发
-
+    console.log(createRoomStat, 'createRoomStat')
+    // 判断是否自动创建房间，由用户按需触发
+    if (createRoomStat) {
+      console.log('连接后自动创建房间...')
+      createRoom()
+    }
     // 启动心跳检查：查询信任设备的在线状态
     checkOnlineStatus()
   })

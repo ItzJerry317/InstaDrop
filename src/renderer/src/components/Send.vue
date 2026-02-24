@@ -55,7 +55,7 @@ const acceptDisclaimer = () => {
   localStorage.setItem('instadrop_disclaimer_accepted', 'true')
   showDisclaimerDialog.value = false
   // 同意后才开始连接服务器
-  connectToServer()
+  connectToServer(true)
 }
 
 const rejectDisclaimer = () => {
@@ -348,7 +348,7 @@ onMounted(() => {
 
             <v-btn :color="isConnected ? 'error' : 'success'" variant="elevated" size="small"
               @click="
-                if (!isConnected) connectToServer();
+                if (!isConnected) connectToServer(true);
                 else if (isP2PReady) handleDisconnect(); // 有人连着时，只踢人
                 else refreshShareCode(); // 没人连着时，刷新取件码
               ">

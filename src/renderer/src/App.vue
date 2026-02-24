@@ -50,7 +50,7 @@ onMounted(() => {
     windowStatus.value = newState === 'maximized' ? 'mdi-window-restore' : 'mdi-window-maximize'
   })
   if (localStorage.getItem('instadrop_disclaimer_accepted') === 'true') {
-    connectToServer()
+    connectToServer(true)
   }
 })
 
