@@ -15,6 +15,7 @@ const connectedPeerId = ref<string | null>(null)
 const connectedPeerName = ref<string | null>(null)
 const transferSpeed = ref('0 B/s')
 const currentRoomId = ref<string | null>(null)
+const connectionError = ref<string | null>(null)
 
 // === 接收端状态定义 ===
 const receiveStatus = ref<'idle' | 'receiving' | 'done' | 'error'>('idle')
@@ -272,7 +273,7 @@ const connectToServer = (createRoomStat?: boolean) => {
 
   // 连接你的 Node 服务器
   socket = io(signalingUrl, {
-    reconnectionAttempts: 3,
+    reconnectionAttempts: 1,
     reconnectionDelay: 2000
   })
 
@@ -284,6 +285,8 @@ const connectToServer = (createRoomStat?: boolean) => {
       deviceName: myDeviceName.value
     })
 
+    connectionError.value = ''
+
     console.log(createRoomStat, 'createRoomStat')
     // 判断是否自动创建房间，由用户按需触发
     if (createRoomStat) {
@@ -292,6 +295,29 @@ const connectToServer = (createRoomStat?: boolean) => {
     }
     // 启动心跳检查：查询信任设备的在线状态
     checkOnlineStatus()
+  })
+
+  socket.on('disconnect', (reason) => {
+    console.log('❌ 与信令服务器断开连接，原因:', reason)
+    isConnected.value = false
+
+    if (reason === 'io server disconnect') {
+      socket?.connect()
+    }
+    if (reason !== 'io client disconnect') {
+       connectionError.value = `服务器连接已断开 (${reason})`
+    }
+    // 不要清空 P2P 相关的状态 (isP2PReady)，因为如果是直连传文件，
+    // 信令服务器断了，P2P 连接还活着
+    roomCode.value = '' 
+    trustedDevices.value.forEach(d => d.isOnline = false)
+  })
+
+  socket.on('connect_error', (error) => {
+    console.log('⚠️ 连接信令服务器失败:', error.message)
+    connectionError.value = error.message
+    isConnected.value = false
+    trustedDevices.value.forEach(d => d.isOnline = false)
   })
 
   socket.on('room-created', (code: string) => {
@@ -529,6 +555,8 @@ export function useWebRTC() {
     addTrustedDevice, removeTrustedDevice, connectToDevice, disconnectPeer, updateDeviceRemark,
     createRoom, joinRoom, refreshShareCode,
     // 传输控制
-    sendFile, resetTransfer, pauseTransfer, resumeTransfer, cancelTransfer, transferSpeed
+    sendFile, resetTransfer, pauseTransfer, resumeTransfer, cancelTransfer, transferSpeed,
+    // 连接错误信息
+    connectionError
   }
 }

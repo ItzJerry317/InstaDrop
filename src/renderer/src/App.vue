@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import Send from './components/Send.vue'
 import TestPanel from './components/TestPanel.vue'
 import Settings from './components/Settings.vue'
@@ -10,7 +10,11 @@ import { useWebRTC } from './composables/useWebRTC'
 const currentTab = ref('send')
 const drawer = ref(false)
 const windowStatus = ref('mdi-window-maximize')
-const { connectToServer, disconnectServer } = useWebRTC()
+const { connectToServer, disconnectServer, connectionError } = useWebRTC()
+
+const showSnackbar = ref(false)
+const snackbarMessage = ref('')
+const snackbarColor = ref('')
 
 // 窗口状态
 const checkWindowStatus = async () => {
@@ -42,6 +46,17 @@ const applyTheme = (pref: string) => {
   }
 }
 
+watch(connectionError, (err) => {
+  if (err) {
+    snackbarMessage.value = '连接信令服务器出现错误：' + err
+    snackbarColor.value = 'error'
+    showSnackbar.value = true
+    setTimeout(() => {
+      connectionError.value = ''
+    }, 3000)
+  }
+})
+
 onMounted(() => {
   applyTheme(themePreference.value)
   checkWindowStatus()
@@ -71,33 +86,16 @@ onUnmounted(() => {
       <v-btn icon="mdi-close" style="-webkit-app-region: no-drag;" @click="closeApp"></v-btn>
     </v-app-bar>
 
-    <v-navigation-drawer  v-model="drawer" temporary>
+    <v-navigation-drawer v-model="drawer" temporary>
       <v-list density="compact" nav>
-        <v-list-item
-          prepend-icon="mdi-upload"
-          title="发送"
-          value="send"
-          :active="currentTab === 'send'"
-          @click="currentTab = 'send'"
-          color="primary"
-        ></v-list-item>
+        <v-list-item prepend-icon="mdi-upload" title="发送" value="send" :active="currentTab === 'send'"
+          @click="currentTab = 'send'" color="primary"></v-list-item>
         
-        <v-list-item
-          prepend-icon="mdi-test-tube"
-          title="测试"
-          value="test"
-          :active="currentTab === 'test'"
-          @click="currentTab = 'test'"
-          color="primary"
-        ></v-list-item>
+        <v-list-item prepend-icon="mdi-test-tube" title="测试" value="test" :active="currentTab === 'test'"
+          @click="currentTab = 'test'" color="primary"></v-list-item>
 
-        <v-list-item
-          prepend-icon="mdi-cog"
-          title="设置"
-          value="settings"
-          :active="currentTab === 'settings'"
-          @click="currentTab = 'settings'"
-          color="primary">
+        <v-list-item prepend-icon="mdi-cog" title="设置" value="settings" :active="currentTab === 'settings'"
+          @click="currentTab = 'settings'" color="primary">
         </v-list-item>
       </v-list>
     </v-navigation-drawer>
@@ -106,37 +104,56 @@ onUnmounted(() => {
       <Send v-if="currentTab === 'send'" />
       <TestPanel v-if="currentTab === 'test'" />
       <Settings v-if="currentTab === 'settings'" />
+
+      <!-- snackbar配置 目前专用于处理socket连接失败的提示 -->
+      <v-snackbar v-model="showSnackbar" :color="snackbarColor" timeout="3000" location="bottom">
+        {{ snackbarMessage }}
+        <template v-slot:actions>
+          <v-btn variant="text" @click="showSnackbar = false; connectionError = ''">
+            关闭
+          </v-btn>
+        </template>
+      </v-snackbar>
     </v-main>
   </v-app>
 </template>
 
 <style>
-html, body {
+html,
+body {
   overflow: hidden !important;
   margin: 0;
   padding: 0;
   overflow-y: hidden !important;
 }
-#app, .v-application, .v-application__wrap {
+
+#app,
+.v-application,
+.v-application__wrap {
   height: 100vh !important;
   max-height: 100vh !important;
   overflow: hidden !important;
 }
+
 .v-main {
   height: 100vh; 
   overflow-y: auto !important;
 }
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.4);
 }
