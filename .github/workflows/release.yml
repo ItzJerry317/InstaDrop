@@ -1,0 +1,39 @@
+name: Build & Release
+
+# 触发条件：只有推送以 'v' 开头的 tag 时才触发 (例如 v1.0.0)
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build Windows App
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      # 编译 Vue 和 TS 代码 (对应本地 npm run build)
+      - name: Build Source
+        run: npm run build
+
+      # 打包成 exe 并上传
+      # GH_TOKEN 是 GitHub 自动生成的
+      - name: Build & Publish Electron App
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish always
