@@ -200,6 +200,10 @@ const handleDisconnect = (reason: string) => {
 
 // 主动断开当前的 P2P 对等连接，并重新申请新房间
 const disconnectPeer = () => {
+  if (sendStatus.value.status === 'sending' || sendStatus.value.status === 'paused') {
+    isCancelled.value = true
+  }
+
   // 关闭 WebRTC 连接和数据通道
   if (dataChannel) {
     dataChannel.close()
@@ -396,99 +400,112 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
   }
 }
 
-const sendFile = (filePath: string): Promise<void> => {
-  return new Promise(async (resolve, reject) => {
-    const channel = dataChannel //锁定当前dataChannel
-    if (!channel || channel.readyState !== 'open') {
-      return reject(new Error('P2P 通道未打开'))
-    }
+// 去掉 new Promise 包装，直接声明 async 函数
+const sendFile = async (filePath: string): Promise<void> => {
+  // 2. 检查前置条件
+  const channel = dataChannel
+  if (!channel || channel.readyState !== 'open') {
+    throw new Error('P2P 通道未打开') // 直接 throw，会被下面的 catch 捕获
+  }
 
-    try {
-      isCancelled.value = false
-      const { name, size } = await window.myElectronAPI.getFileInfo(filePath)
-      currentFile.value = { name, size }
+  try {
+    isCancelled.value = false
+    const { name, size } = await window.myElectronAPI.getFileInfo(filePath)
+    currentFile.value = { name, size }
 
-      //锁定channel变量，防止在传输过程中被disconnectServer重置
-      channel.send(JSON.stringify({ type: 'meta', name, size }))
+    channel.send(JSON.stringify({ type: 'meta', name, size }))
 
-      const chunkSize = 64 * 1024
-      let offset = 0
-      sendStatus.value = { status: 'sending', message: `正在发送 ${name} (${Math.round(size / 1024)} KB)` }
+    const chunkSize = 64 * 1024
+    let offset = 0
+    sendStatus.value = { status: 'sending', message: `正在发送 ${name} (${Math.round(size / 1024)} KB)` }
 
-      //速度计算
-      let lastTime = Date.now()
-      let lastOffset = 0
-      transferSpeed.value = '计算中...'
+    let lastTime = Date.now()
+    let lastOffset = 0
+    transferSpeed.value = '计算中...'
 
-      while (offset < size) {
-        if (isCancelled.value) {
-          resetTransfer()
-          return reject(new Error('传输已被手动终止'))
-        }
+    while (offset < size) {
+      // 检查取消
+      if (isCancelled.value) {
+        throw new Error('传输已被手动终止') // 统一用 throw
+      }
 
-        if (sendStatus.value.status === 'error' || !socket || !socket.connected) {
-          return reject(new Error('disconnected'))
-        }
+      // 检查连接
+      if (sendStatus.value.status === 'error' || !socket || !socket.connected) {
+        throw new Error('disconnected')
+      }
 
-        while (sendStatus.value.status === 'paused') {
-          if (isCancelled.value) break
-
-          // 在暂停的休眠期间，如果手机突然断网，需要立刻跳出死循环
-          if (channel.readyState !== 'open' || !socket || !socket.connected) {
-            return reject(new Error('disconnected'))
-          }
-          transferSpeed.value = '0 B/s' // 暂停时速度归零
-          await new Promise(r => setTimeout(r, 100))
-          // 从暂停唤醒时，重置时间戳，防止计算出错误的低速
-          lastTime = Date.now()
-          lastOffset = offset
-        }
-
-        if (isCancelled.value) {
-          resetTransfer()
-          return reject(new Error('传输已被手动终止'))
-        }
-
-        // 关键点：每次读取并发送切片前，必须检查底层物理通道是否依然存活
+      // 暂停逻辑
+      while (sendStatus.value.status === 'paused') {
+        if (isCancelled.value) break
         if (channel.readyState !== 'open' || !socket || !socket.connected) {
-          return reject(new Error('disconnected'))
+          throw new Error('disconnected')
         }
-
-        if (channel.bufferedAmount > 1024 * 1024) {
-          await new Promise(r => setTimeout(r, 50))
-          continue
-        }
-        const chunk = await window.myElectronAPI.readFileChunk(filePath, offset, chunkSize)
-        channel.send(chunk as any)
-        offset += chunk.length
-        fileProgress.value = Math.round((offset / size) * 100)
-        //每500ms计算一次速度
-        const now = Date.now()
-        if (now - lastTime >= 500) {
-          const speed = ((offset - lastOffset) / (now - lastTime)) * 1000
-          transferSpeed.value = formatSpeed(speed)
-          lastTime = now
-          lastOffset = offset
-        }
+        transferSpeed.value = '0 B/s'
+        await new Promise(r => setTimeout(r, 100))
+        lastTime = Date.now()
+        lastOffset = offset
       }
 
-      // 修复：只有在“没有”被取消的情况下，才发送结束标记并标记为完成
-      if (!isCancelled.value && sendStatus.value.status !== 'error') {
-        channel.send(JSON.stringify({ type: 'eof' }))
-        sendStatus.value = { status: 'done', message: `文件 ${name} 发送完成` }
-        resolve()
-        transferSpeed.value = '0 B/s'
+      // 再次检查取消（暂停唤醒后）
+      if (isCancelled.value) {
+        throw new Error('传输已被手动终止')
       }
-    } catch (err: any) {
-      // 修复：只有在“非手动取消”的情况下，才记录为系统错误
-      if (!isCancelled.value) {
-        const errorMsg = err.message === 'disconnected' ? '连接意外断开 (Disconnected)' : (err.message || '未知错误')
-        sendStatus.value = { status: 'error', message: `传输异常：${errorMsg}` }
-        transferSpeed.value = '0 B/s'
+
+      // 检查通道
+      if (channel.readyState !== 'open') {
+        throw new Error('disconnected')
       }
-      reject(err)
+
+      // 流控
+      if (channel.bufferedAmount > 1024 * 1024) {
+        await new Promise(r => setTimeout(r, 50))
+        continue
+      }
+
+      const chunk = await window.myElectronAPI.readFileChunk(filePath, offset, chunkSize)
+
+      // 发送前最后一次检查
+      if (channel.readyState !== 'open' || isCancelled.value) {
+        if (isCancelled.value) throw new Error('传输已被手动终止')
+        throw new Error('disconnected')
+      }
+
+      channel.send(chunk as any)
+      offset += chunk.length
+      fileProgress.value = Math.round((offset / size) * 100)
+
+      // 速度计算
+      const now = Date.now()
+      if (now - lastTime >= 500) {
+        const speed = ((offset - lastOffset) / (now - lastTime)) * 1000
+        transferSpeed.value = formatSpeed(speed)
+        lastTime = now
+        lastOffset = offset
+      }
     }
-  })
+
+    // 完成逻辑
+    if (!isCancelled.value && sendStatus.value.status !== 'error') {
+      channel.send(JSON.stringify({ type: 'eof' }))
+      sendStatus.value = { status: 'done', message: `文件 ${name} 发送完成` }
+      transferSpeed.value = '0 B/s'
+    }
+
+  } catch (err: any) {
+    if (isCancelled.value) {
+      // 场景 A: 断开连接 (保留 Error)
+      // 场景 B: 终止传输 (重置 Idle)
+      if (sendStatus.value.status !== 'error') {
+        resetTransfer()
+      }
+    } else {
+      const errorMsg = err.message === 'disconnected' ? '连接意外断开 (Disconnected)' : (err.message || '未知错误')
+      sendStatus.value = { status: 'error', message: `传输异常：${errorMsg}` }
+      transferSpeed.value = '0 B/s'
+    }
+
+    throw err // 继续向上抛出，以便调用者也能感知
+  }
 }
 
 export function useWebRTC() {
