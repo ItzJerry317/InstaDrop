@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import Send from './components/Send.vue'
 import TestPanel from './components/TestPanel.vue'
 import Settings from './components/Settings.vue'
+import Receive from './components/Receive.vue'
 import { useTheme } from 'vuetify'
 import { themePreference } from './store/localStorageRead'
 import { useWebRTC } from './composables/useWebRTC'
@@ -76,7 +77,7 @@ onUnmounted(() => {
 
 <template>
   <v-app>
-    
+
     <v-app-bar color="primary" density="compact" style="-webkit-app-region: drag;">
       <v-btn icon="mdi-menu" style="-webkit-app-region: no-drag;" @click="drawer = !drawer"></v-btn>
       <v-app-bar-title>Instadrop</v-app-bar-title>
@@ -90,7 +91,11 @@ onUnmounted(() => {
       <v-list density="compact" nav>
         <v-list-item prepend-icon="mdi-upload" title="发送" value="send" :active="currentTab === 'send'"
           @click="currentTab = 'send'" color="primary"></v-list-item>
-        
+
+        <v-list-item prepend-icon="mdi-download" title="接收" value="receive" :active="currentTab === 'receive'"
+          @click="currentTab = 'receive'" color="primary">
+        </v-list-item>
+
         <v-list-item prepend-icon="mdi-test-tube" title="测试" value="test" :active="currentTab === 'test'"
           @click="currentTab = 'test'" color="primary"></v-list-item>
 
@@ -99,11 +104,12 @@ onUnmounted(() => {
         </v-list-item>
       </v-list>
     </v-navigation-drawer>
-    
+
     <v-main>
       <Send v-if="currentTab === 'send'" />
       <TestPanel v-if="currentTab === 'test'" />
       <Settings v-if="currentTab === 'settings'" />
+      <Receive v-if="currentTab === 'receive'" />
 
       <!-- snackbar配置 目前专用于处理socket连接失败的提示 -->
       <v-snackbar v-model="showSnackbar" :color="snackbarColor" timeout="3000" location="bottom">
@@ -136,7 +142,7 @@ body {
 }
 
 .v-main {
-  height: 100vh; 
+  height: 100vh;
   overflow-y: auto !important;
 }
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useWebRTC } from '../composables/useWebRTC'
+import { connect } from 'http2'
 
 const {
   roomCode,
@@ -286,6 +287,15 @@ const leaveRoom = () => {
   disconnectPeer()
 }
 
+const connectBtnDisabled = ref(false)
+
+const disableConnectBtnTemporarily = () => {
+  connectBtnDisabled.value = true
+  setTimeout(() => {
+    connectBtnDisabled.value = false
+  }, 2000) // 2秒后重新启用按钮
+}
+
 const handleDisconnect = () => {
   // 先断开本地 P2P
   disconnectPeer()
@@ -346,13 +356,13 @@ onMounted(() => {
               </span>
             </div>
 
-            <v-btn :color="isConnected ? 'error' : 'success'" variant="elevated" size="small"
+            <v-btn :disabled="connectBtnDisabled" :color="isConnected ? 'error' : 'success'" variant="elevated" size="small"
               @click="
-                if (!isConnected) connectToServer(true);
-                else if (isP2PReady) handleDisconnect(); // 有人连着时，只踢人
+                if (!isConnected) {connectToServer(true); disableConnectBtnTemporarily()}
+                else if (isP2PReady) {handleDisconnect()} // 有人连着时，只踢人
                 else refreshShareCode(); // 没人连着时，刷新取件码
               ">
-              {{ !isConnected ? '连接服务器' : (isP2PReady ? '断开连接' : '刷新取件码') }}
+              {{(!isConnected && !connectBtnDisabled) ? '连接服务器' : (!isConnected && connectBtnDisabled) ? '连接中...' : (isP2PReady ? '断开连接' : '刷新取件码') }}
             </v-btn>
           </v-card-text>
         </v-card>

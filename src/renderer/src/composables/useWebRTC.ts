@@ -1,6 +1,5 @@
 import { ref, watch } from 'vue'
 import { io, Socket } from 'socket.io-client'
-import { is } from '@electron-toolkit/utils'
 // 更改为全局变量
 
 // === 发送端状态定义 ===
