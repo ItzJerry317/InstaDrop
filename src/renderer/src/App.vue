@@ -49,7 +49,7 @@ const applyTheme = (pref: string) => {
 
 watch(connectionError, (err) => {
   if (err) {
-    snackbarMessage.value = '连接信令服务器出现错误：' + err
+    snackbarMessage.value = err
     snackbarColor.value = 'error'
     showSnackbar.value = true
     setTimeout(() => {
@@ -111,7 +111,7 @@ onUnmounted(() => {
       <Settings v-if="currentTab === 'settings'" />
       <Receive v-if="currentTab === 'receive'" />
 
-      <!-- snackbar配置 目前专用于处理socket连接失败的提示 -->
+      <!-- snackbar配置 全局可用 用于提示错误信息 -->
       <v-snackbar v-model="showSnackbar" :color="snackbarColor" timeout="3000" location="bottom">
         {{ snackbarMessage }}
         <template v-slot:actions>

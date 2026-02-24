@@ -25,7 +25,11 @@ const electronAPI = {
     });
   },
   getFileInfo: (filePath: string) => ipcRenderer.invoke('get-file-info', filePath),
-  readFileChunk: (filePath: string, offset: number, chunkSize: number) => ipcRenderer.invoke('read-file-chunk', filePath, offset, chunkSize)
+  readFileChunk: (filePath: string, offset: number, chunkSize: number) => ipcRenderer.invoke('read-file-chunk', filePath, offset, chunkSize),
+  startReceiveFile: (fileName: string, fileSize: number) => ipcRenderer.invoke('start-receive-file', fileName, fileSize),
+  receiveFileChunk: (chunk: ArrayBuffer) => ipcRenderer.invoke('receive-file-chunk', chunk),
+  finishReceiveFile: () => ipcRenderer.invoke('finish-receive-file'),
+  openDownloadsFolder: () => ipcRenderer.invoke('open-downloads-folder')
 };
 
 declare global {

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useWebRTC } from '../composables/useWebRTC'
-import { connect } from 'http2'
 
 const {
   roomCode,

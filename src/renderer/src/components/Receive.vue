@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, watch } from 'vue'
 import { useWebRTC } from '../composables/useWebRTC'
 
 // 引入核心逻辑
@@ -21,7 +21,9 @@ const {
   updateDeviceRemark,
   connectedPeerName,
   connectToDevice,
-  refreshShareCode
+  refreshShareCode,
+  joinRoom,
+  connectionError
 } = useWebRTC()
 
 // === 接收状态 (TODO: 下一步我们需要在 useWebRTC.ts 中真正实现这些状态) ===
@@ -32,6 +34,35 @@ const receiveProgress = ref(0)
 const receiveSpeed = ref('0 B/s')
 const tempRoomCode = ref('')
 const connectBtnDisabled = ref(false)
+const isJoining = ref(false)
+
+const handleJoin = () => {
+  if (tempRoomCode.value.length !== 6) return
+  
+  isJoining.value = true
+  
+  // 调用底层的加入房间逻辑
+  // 注意：加入房间是一个异步过程（发请求 -> 等服务器响应 -> 等 P2P 建立）
+  // joinRoom 目前是“发后即忘”的，我们通过监听 P2P 状态来判断是否成功
+  joinRoom(tempRoomCode.value)
+
+  // 简单的超时重置 (防止万一没连上，按钮一直转圈)
+  setTimeout(() => {
+    isJoining.value = false
+  }, 3000)
+}
+
+watch(connectionError, (err) => {
+  if (err) {
+    isJoining.value = false
+  }
+})
+
+watch(isP2PReady, (ready) => {
+  if (ready) {
+    isJoining.value = false
+  }
+})
 
 const disableConnectBtnTemporarily = () => {
   connectBtnDisabled.value = true
@@ -71,7 +102,7 @@ const copyToClipboard = async (text: string) => {
   }
 }
 
-// 打开下载文件夹 (需要 Electron 主进程支持，我们稍后实现)
+// 打开下载文件夹
 const openDownloadsFolder = () => {
   if (window.myElectronAPI?.openDownloadsFolder) {
     window.myElectronAPI.openDownloadsFolder()
@@ -158,10 +189,10 @@ const formatSize = (bytes: number) => {
             <div class="text-h6 text-medium-emphasis mb-4" v-if="isConnected">请输入取件码</div>
 
             <div v-if="isConnected" class="d-flex align-center">
-              <v-otp-input v-model="tempRoomCode" length="6" :disabled="!isConnected"></v-otp-input>
+              <v-otp-input v-model="tempRoomCode" length="6" :disabled="!isConnected || isJoining"></v-otp-input>
             </div>
 
-            <v-btn :disabled="tempRoomCode.length < 6 || !isConnected" class="mt-4" v-if="isConnected">连接</v-btn>
+            <v-btn :disabled="tempRoomCode.length < 6 || !isConnected" :loading="isJoining" class="mt-4" v-if="isConnected" @click="handleJoin">连接</v-btn>
 
             <div v-if="!isConnected" class="text-h4 text-grey font-weight-bold">
               请先连接到信令服务器
