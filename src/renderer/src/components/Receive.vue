@@ -9,29 +9,31 @@ const {
   isP2PReady,
   connectedPeerId,
   connectToServer,
-  disconnectServer,
   disconnectPeer, // 用于刷新取件码
   // === 身份数据 ===
   myDeviceId,
   myDeviceName,
   trustedDevices,
   updateDeviceName,
-  addTrustedDevice,
   removeTrustedDevice,
   updateDeviceRemark,
   connectedPeerName,
   connectToDevice,
   refreshShareCode,
   joinRoom,
-  connectionError
+  connectionError,
+  currentReceivingFile,
+  receiveProgress,
+  receiveSpeed,
+  receiveStatus,
 } = useWebRTC()
 
 // === 接收状态 (TODO: 下一步我们需要在 useWebRTC.ts 中真正实现这些状态) ===
 // 目前先用本地 ref 模拟 UI 效果，等会去底层接通
-const receiveStatus = ref<'idle' | 'receiving' | 'done' | 'error'>('idle')
-const currentReceivingFile = ref<{ name: string, size: number, receivedSize: number } | null>(null)
-const receiveProgress = ref(0)
-const receiveSpeed = ref('0 B/s')
+// const receiveStatus = ref<'idle' | 'receiving' | 'done' | 'error'>('idle')
+// const currentReceivingFile = ref<{ name: string, size: number, receivedSize: number } | null>(null)
+// const receiveProgress = ref(0)
+// const receiveSpeed = ref('0 B/s')
 const tempRoomCode = ref('')
 const connectBtnDisabled = ref(false)
 const isJoining = ref(false)
@@ -76,6 +78,8 @@ const handleDisconnect = () => {
   // 先断开本地 P2P
   disconnectPeer()
 
+  receiveStatus.value = 'idle'
+
   if (roomCode.value === '加密直连') {
     // 场景 A：如果是直连，我们希望“退出直连模式，回到公开模式”
     // 调用 refreshShareCode 是最简单的“重置”方式，它会销毁直连房间并给你一个新的 6 位码
@@ -102,7 +106,7 @@ const copyToClipboard = async (text: string) => {
   }
 }
 
-// 打开下载文件夹
+// 打开下载文件夹 (需要 Electron 主进程支持，我们稍后实现)
 const openDownloadsFolder = () => {
   if (window.myElectronAPI?.openDownloadsFolder) {
     window.myElectronAPI.openDownloadsFolder()
@@ -221,15 +225,13 @@ const formatSize = (bytes: number) => {
               }}
             </div>
 
-            <v-progress-linear :model-value="receiveProgress" height="20" rounded striped
-              :color="receiveStatus === 'done' ? 'success' : 'primary'">
-              <template v-slot:default="{ value }">
-                <span class="text-caption font-weight-bold text-white">{{ Math.ceil(value) }}%</span>
-              </template>
+            <v-progress-linear :model-value="receiveProgress" height="5" rounded
+            :color="receiveStatus === 'done' ? 'success' : receiveStatus === 'error' ? 'error' : 'primary'">
             </v-progress-linear>
 
             <div class="d-flex justify-space-between mt-2 text-caption font-weight-bold">
               <span class="text-primary">{{ receiveSpeed }}</span>
+              <span>{{ receiveProgress }}%</span>
               <span v-if="receiveStatus === 'receiving'">正在写入磁盘...</span>
               <span v-if="receiveStatus === 'done'" class="text-success">接收完成</span>
             </div>
@@ -238,6 +240,14 @@ const formatSize = (bytes: number) => {
               prepend-icon="mdi-folder-open" @click="openDownloadsFolder">
               打开下载文件夹
             </v-btn>
+            <div class="mt-4"></div>
+            <v-divider></v-divider>
+            <div class="mt-4"></div>
+            <div class="text-caption text-weight-bold">
+              <span>你可以在发送端设备上继续传输文件。</span><br>
+              <span>在断开与 {{ connectedPeerName }} 的连接之前，你无法接收来自其他设备的文件。</span><br>
+              <span>要断开连接，请点击“断开连接”按钮。</span>
+            </div>
           </div>
         </v-card>
 

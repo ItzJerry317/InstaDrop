@@ -21,6 +21,8 @@ const receiveStatus = ref<'idle' | 'receiving' | 'done' | 'error'>('idle')
 const currentReceivingFile = ref<{ name: string, size: number, receivedSize: number } | null>(null)
 const receiveProgress = ref(0)
 const receiveSpeed = ref('0 B/s')
+let internalReceivedSize = 0
+let lastUIUpdateTime = 0
 
 // === 身份与信任管理 ===
 // 从 localStorage 读取或生成新身份
@@ -172,7 +174,7 @@ const setupDataChannel = (channel: RTCDataChannel) => {
 
   channel.onmessage = (e) => {
     const data = e.data
-    
+
     // 1. 处理二进制数据 (文件切片)
     if (data instanceof ArrayBuffer) {
       handleFileChunk(data)
@@ -192,7 +194,7 @@ const setupDataChannel = (channel: RTCDataChannel) => {
         // 收到文件头 准备接收
         console.log('收到文件发送请求:', msg.name, msg.size)
         handleFileMeta(msg)
-      } 
+      }
       else if (msg.type === 'eof') {
         // 收到结束符 接收完成
         console.log('文件接收完成')
@@ -452,7 +454,11 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
     }
   }
 
-  peerConnection.onicecandidate = (event) => { /* ... */ }
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket?.emit('signal', { roomCode: roomId, payload: { type: 'candidate', candidate: event.candidate } })
+    }
+  }
 
   if (isPolite) {
     const offer = await peerConnection.createOffer()
@@ -466,42 +472,53 @@ let lastReceiveTime = Date.now()
 let lastReceiveOffset = 0
 
 const handleFileMeta = async (meta: { name: string, size: number }) => {
+  // 重置内部计数器
+  internalReceivedSize = 0
+  lastUIUpdateTime = 0
+
   // 更新 UI 状态
   receiveStatus.value = 'receiving'
-  currentReceivingFile.value = { 
-    name: meta.name, 
-    size: meta.size, 
-    receivedSize: 0 
+  currentReceivingFile.value = {
+    name: meta.name,
+    size: meta.size,
+    receivedSize: 0
   }
   receiveProgress.value = 0
   receiveSpeed.value = '0 B/s'
-  
+
   // 重置速度计算器
   lastReceiveTime = Date.now()
   lastReceiveOffset = 0
-  
+
   // 调用 Electron 主进程：创建一个新文件写入流
   await window.myElectronAPI?.startReceiveFile(meta.name, meta.size)
 }
 
 const handleFileChunk = async (chunk: ArrayBuffer) => {
   if (!currentReceivingFile.value) return
-  
+
   // 更新进度
   const chunkSize = chunk.byteLength
-  currentReceivingFile.value.receivedSize += chunkSize
-  receiveProgress.value = (currentReceivingFile.value.receivedSize / currentReceivingFile.value.size) * 100
-  
+  internalReceivedSize += chunkSize
+
   // 调用 Electron 主进程：追加写入数据
   await window.myElectronAPI?.receiveFileChunk(chunk)
 
   // 计算速度 (每 500ms 更新一次 UI)
   const now = Date.now()
+  if (now - lastUIUpdateTime >= 100) {
+    // 只有到了时间点，才去碰 Vue 的响应式变量
+    currentReceivingFile.value.receivedSize = internalReceivedSize
+    receiveProgress.value = (internalReceivedSize / currentReceivingFile.value.size) * 100
+    lastUIUpdateTime = now
+  }
+
+  // 4. 计算速度 (保持每 500ms 一次，逻辑不变)
   if (now - lastReceiveTime >= 500) {
-    const speed = ((currentReceivingFile.value.receivedSize - lastReceiveOffset) / (now - lastReceiveTime)) * 1000
+    const speed = ((internalReceivedSize - lastReceiveOffset) / (now - lastReceiveTime)) * 1000
     receiveSpeed.value = formatSpeed(speed)
     lastReceiveTime = now
-    lastReceiveOffset = currentReceivingFile.value.receivedSize
+    lastReceiveOffset = internalReceivedSize
   }
 }
 

@@ -153,6 +153,7 @@ app.whenReady().then(() => {
 
       // 确保 Instadrop 文件夹存在
       if (!fs.existsSync(instadropPath)) {
+        console.log('Instadrop 文件夹不存在，正在创建...')
         fs.mkdirSync(instadropPath, { recursive: true })
       }
 
