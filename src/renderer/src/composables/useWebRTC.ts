@@ -492,6 +492,8 @@ export function useWebRTC() {
     roomCode, isConnected, isP2PReady,
     // 传输状态
     fileProgress, currentFile, sendStatus,
+    // 接收状态
+    receiveStatus, currentReceivingFile, receiveProgress, receiveSpeed,
     // 身份数据
     myDeviceId, myDeviceName, trustedDevices, connectedPeerId, connectedPeerName,
     // 方法
