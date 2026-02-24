@@ -126,6 +126,9 @@ const updateDeviceRemark = (id: string, remark: string) => {
   const exists = trustedDevices.value.find(d => d.id === id)
   if (exists) {
     exists.remark = remark
+    if (connectedPeerId.value === id) {
+      connectedPeerName.value = remark || exists.name
+    }
   }
 }
 
@@ -189,6 +192,14 @@ const setupDataChannel = (channel: RTCDataChannel) => {
         addTrustedDevice(msg.id, msg.name)
         connectedPeerId.value = msg.id // 记录当前连接的设备 ID
         connectedPeerName.value = msg.name // 记录当前连接的设备名称
+
+        // 如果有备注，就用备注
+        const existingDevice = trustedDevices.value.find(d => d.id === msg.id)
+        if (existingDevice && existingDevice.remark) {
+          connectedPeerName.value = existingDevice.remark
+        } else {
+          connectedPeerName.value = msg.name
+        }
       }
       else if (msg.type === 'meta') {
         // 收到文件头 准备接收

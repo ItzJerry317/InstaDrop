@@ -169,13 +169,13 @@ const formatSize = (bytes: number) => {
         <v-card variant="flat" color="primary" class="mb-4 bg-surface-variant rounded-lg">
           <v-card-text class="d-flex align-center justify-space-between py-2">
             <div class="d-flex align-center">
-              <v-icon :color="isP2PReady ? 'purple-accent-3' : (isConnected ? 'success' : 'grey')" class="mr-3">
+              <v-icon :color="isP2PReady ? '' : (isConnected ? 'success' : 'grey')" class="mr-3">
                 {{ isP2PReady ? 'mdi-lightning-bolt' : 'mdi-access-point-network' }}
               </v-icon>
 
               <span v-if="!isConnected" class="text-medium-emphasis">离线状态</span>
               <span v-else-if="!isP2PReady" class="font-weight-bold text-success">服务在线，等待连接...</span>
-              <span v-else class="font-weight-bold text-purple-accent-3">P2P 加密通道已就绪</span>
+              <span v-else class="font-weight-bold">已成功建立连接</span>
             </div>
 
             <v-btn :disabled="connectBtnDisabled" :color="isConnected ? 'error' : 'success'" variant="elevated" size="small"
@@ -231,7 +231,7 @@ const formatSize = (bytes: number) => {
 
             <div class="d-flex justify-space-between mt-2 text-caption font-weight-bold">
               <span class="text-primary">{{ receiveSpeed }}</span>
-              <span>{{ receiveProgress }}%</span>
+              <span>{{ receiveProgress.toFixed(2) }}%</span>
               <span v-if="receiveStatus === 'receiving'">正在写入磁盘...</span>
               <span v-if="receiveStatus === 'done'" class="text-success">接收完成</span>
             </div>
@@ -254,7 +254,7 @@ const formatSize = (bytes: number) => {
         <div class="d-flex justify-center mt-4">
           <v-btn variant="text" size="small" color="grey" prepend-icon="mdi-folder-marker-outline"
             @click="openDownloadsFolder">
-            默认存储位置: 下载/Instadrop
+            点击打开存储位置: 下载/Instadrop
           </v-btn>
         </div>
       </v-col>
