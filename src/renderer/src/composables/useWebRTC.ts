@@ -1,6 +1,5 @@
-import { ref, onUnmounted, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { io, Socket } from 'socket.io-client'
-
 // 更改为全局变量
 
 // === 发送端状态定义 ===
@@ -277,8 +276,7 @@ const connectToServer = () => {
       deviceName: myDeviceName.value
     })
 
-    // 同时也请求旧版的房间码（为了兼容 6 位数连接）
-    socket?.emit('create-room')
+    // 不再自动创建房间，由用户按需触发
 
     // 启动心跳检查：查询信任设备的在线状态
     checkOnlineStatus()
@@ -344,6 +342,24 @@ const connectToServer = () => {
   socket.on('peer-disconnected', () => {
     handleDisconnect('对方断开连接')
   })
+}
+
+// 主动创建房间 (Send.vue 调用)
+const createRoom = () => {
+  if (socket && socket.connected) {
+    socket.emit('create-room')
+  }
+}
+
+// 主动加入房间 (Receive.vue 调用)
+const joinRoom = (code: string) => {
+  if (!code || code.length !== 6) return alert('请输入 6 位取件码')
+  if (socket && socket.connected) {
+    roomCode.value = code // 暂时记录
+    socket.emit('join-room', code)
+  } else {
+    alert('未连接服务器')
+  }
 }
 
 // 封装 WebRTC 启动逻辑 (复用)
@@ -482,6 +498,7 @@ export function useWebRTC() {
     connectToServer, disconnectServer,
     regenerateDeviceId, updateDeviceName,
     addTrustedDevice, removeTrustedDevice, connectToDevice, disconnectPeer, updateDeviceRemark,
+    createRoom, joinRoom,
     // 传输控制
     sendFile, resetTransfer, pauseTransfer, resumeTransfer, cancelTransfer, transferSpeed
   }
