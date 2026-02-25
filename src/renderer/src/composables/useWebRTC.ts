@@ -166,14 +166,26 @@ const cancelTransfer = () => {
 }
 
 const setupDataChannel = (channel: RTCDataChannel) => {
-  channel.onopen = () => {
+  // 通用onChannelOpen函数
+  const onChannelOpen = () => {
     console.log('P2P 通道打通！')
     isP2PReady.value = true
+    
+    // 发送身份握手
     channel.send(JSON.stringify({
       type: 'identity-handshake',
       id: myDeviceId.value,
       name: myDeviceName.value
     }))
+  }
+
+  // 针对较慢建立的连接，正常绑定
+  channel.onopen = onChannelOpen
+
+  // 如果当前通道状态已经是 open，手动触发一次，修复有时虽然通道已打开但不能更新ui状态的bug
+  // (针对接收端，往往收到通道时已经是 open 状态)
+  if (channel.readyState === 'open') {
+    onChannelOpen()
   }
 
   channel.onmessage = (e) => {
@@ -441,7 +453,7 @@ const createRoom = () => {
 const joinRoom = (code: string) => {
   if (!code || code.length !== 6) return alert('请输入 6 位取件码')
   if (socket && socket.connected) {
-    roomCode.value = code // 暂时记录
+    roomCode.value = code
     socket.emit('join-room', code)
   } else {
     alert('未连接服务器')
