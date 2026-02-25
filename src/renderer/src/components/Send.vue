@@ -278,15 +278,6 @@ const handleRegenerateId = async () => {
   }
 }
 
-const leaveRoom = () => {
-  if (isP2PReady.value) {
-    triggerSnackbar('已断开连接，正在刷新取件码', 'success')
-  } else {
-    triggerSnackbar('正在刷新取件码', 'success')
-  }
-  disconnectPeer()
-}
-
 const connectBtnDisabled = ref(false)
 
 const disableConnectBtnTemporarily = () => {

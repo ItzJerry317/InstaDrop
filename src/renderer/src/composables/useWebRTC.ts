@@ -18,6 +18,7 @@ const connectionError = ref<string | null>(null)
 
 // === 接收端状态定义 ===
 const receiveStatus = ref<'idle' | 'receiving' | 'done' | 'error'>('idle')
+const receiveError = ref<string | null>(null)
 const currentReceivingFile = ref<{ name: string, size: number, receivedSize: number } | null>(null)
 const receiveProgress = ref(0)
 const receiveSpeed = ref('0 B/s')
@@ -221,12 +222,21 @@ const setupDataChannel = (channel: RTCDataChannel) => {
 }
 
 const handleDisconnect = (reason: string) => {
+  console.log('正在处理连接断开:', reason)
   isP2PReady.value = false
   connectedPeerId.value = null
   connectedPeerName.value = null
   if (sendStatus.value.status === 'sending' || sendStatus.value.status === 'paused') {
     sendStatus.value = { status: 'error', message: reason }
     transferSpeed.value = '0 B/s'
+  }
+  if (receiveStatus.value === 'receiving') {
+    receiveStatus.value = 'error'
+    receiveError.value = `传输意外中断: ${reason}` // 记录错误原因
+    receiveSpeed.value = '0 B/s'
+    
+    // 强制关闭文件流，防止文件被锁定
+    window.myElectronAPI?.finishReceiveFile().catch(err => console.error(err))
   }
 }
 
@@ -541,6 +551,9 @@ const handleFileTransferDone = async () => {
   receiveStatus.value = 'done'
   receiveSpeed.value = '0 B/s'
   receiveProgress.value = 100
+  if (currentReceivingFile.value) {
+    currentReceivingFile.value.receivedSize = currentReceivingFile.value.size
+  }
   // 调用 Electron 主进程：关闭文件流
   await window.myElectronAPI?.finishReceiveFile()
 }
@@ -671,6 +684,6 @@ export function useWebRTC() {
     // 传输控制
     sendFile, resetTransfer, pauseTransfer, resumeTransfer, cancelTransfer, transferSpeed,
     // 连接错误信息
-    connectionError
+    connectionError, receiveError
   }
 }
