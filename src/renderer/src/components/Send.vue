@@ -521,7 +521,7 @@ onMounted(() => {
                     连接
                   </v-btn>
                   <v-btn size="small" color="error" variant="tonal" class="mr-2"
-                    :disabled="!device.isOnline || !isP2PReady || device.id !== connectedPeerId" @click="handleDisconnect()"
+                    :disabled="!isP2PReady || device.id !== connectedPeerId" @click="handleDisconnect()"
                     v-if="connectedPeerId === device.id">
                     断开
                   </v-btn>

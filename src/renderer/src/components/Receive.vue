@@ -224,7 +224,9 @@ const formatSize = (bytes: number) => {
 
           <div v-else class="w-100 px-10">
             <v-icon :icon="receiveStatus === 'done' ? 'mdi-check-circle-outline' : 'mdi-download-network-outline'"
-              size="60" :color="receiveStatus === 'done' ? 'success' : (receiveStatus === 'error' ? 'error' : 'primary')" class="mb-4"></v-icon>
+              size="60"
+              :color="receiveStatus === 'done' ? 'success' : (receiveStatus === 'error' ? 'error' : 'primary')"
+              class="mb-4"></v-icon>
 
             <h3 class="text-h6 font-weight-bold text-truncate mb-1">
               {{ currentReceivingFile?.name || '未知文件' }}
@@ -240,20 +242,22 @@ const formatSize = (bytes: number) => {
 
             <div class="d-flex justify-space-between mt-2 text-caption font-weight-bold">
               <span :class="receiveStatus === 'error' ? 'text-error' : 'text-primary'">
-              {{ receiveStatus === 'error' ? '已停止' : receiveSpeed }}</span>
+                {{ receiveStatus === 'error' ? '已停止' : receiveSpeed }}</span>
               <span>{{ receiveProgress.toFixed(2) }}%</span>
               <span v-if="receiveStatus === 'receiving'">正在写入磁盘...</span>
               <span v-if="receiveStatus === 'done'" class="text-success">接收完成</span>
               <span v-if="receiveStatus === 'error'" class="text-error">接收失败</span>
             </div>
 
-            <div class="mt-4 d-flex justify-space-between text-caption font-weight-bold text-error" v-if="receiveStatus === 'error'">
+            <div class="mt-4 d-flex justify-space-between text-caption font-weight-bold text-error"
+              v-if="receiveStatus === 'error'">
               <span>失败原因：{{ receiveError }}</span>
               <v-spacer></v-spacer>
             </div>
 
-            <v-btn class="mt-4" v-if="receiveStatus === 'error'" variant="tonal" color="primary" prepend-icon="mdi-arrow-left"
-            @click="receiveStatus = 'idle'; receiveError = null; currentReceivingFile = null;">
+            <v-btn class="mt-4" v-if="receiveStatus === 'error'" variant="tonal" color="primary"
+              prepend-icon="mdi-arrow-left"
+              @click="receiveStatus = 'idle'; receiveError = null; currentReceivingFile = null;">
               返回
             </v-btn>
 
@@ -342,10 +346,15 @@ const formatSize = (bytes: number) => {
 
                 <template v-slot:append>
                   <v-btn size="small" color="success" variant="tonal" class="mr-2"
-                    :disabled="!device.isOnline || isP2PReady" @click="connectToDevice(device.id)">
+                    :disabled="!device.isOnline || isP2PReady" @click="connectToDevice(device.id)"
+                    v-if="connectedPeerId !== device.id">
                     连接
                   </v-btn>
-
+                  <v-btn size="small" color="error" variant="tonal" class="mr-2"
+                    :disabled="!isP2PReady || device.id !== connectedPeerId"
+                    @click="handleDisconnect()" v-if="connectedPeerId === device.id">
+                    断开
+                  </v-btn>
                   <v-btn icon="mdi-pencil-outline" variant="text" size="small" color="primary" class="mr-1"
                     @click="openEditDeviceRemarkDialog(device)" title="修改备注名"></v-btn>
 
