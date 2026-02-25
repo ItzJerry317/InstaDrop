@@ -65,7 +65,9 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": true
+      "deleteAppDataOnUninstall": true,
+      "perMachine": true,
+      "allowElevation": true
     },
     "publish": [
       {
