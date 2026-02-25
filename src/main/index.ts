@@ -122,9 +122,17 @@ app.whenReady().then(() => {
     const currentWindow = BrowserWindow.getFocusedWindow();
     console.log(chalk.yellow('收到关闭窗口请求'))
     if (currentWindow) {
-      console.log(chalk.yellow('正在关闭窗口...\n正在存储LocalStorage数据...'));
-      currentWindow.webContents.session.flushStorageData();
-      currentWindow.close();
+      console.log(chalk.yellow('正在关闭窗口...'));
+      currentWindow.hide()
+      setTimeout(() => {
+        try {
+          currentWindow.webContents.session.flushStorageData();
+        } catch (e) {
+          console.log("保存localStorage出现错误：", e);
+        } finally {
+          currentWindow.close();
+        }
+      }, 50)
     }
   });
 
