@@ -1,5 +1,7 @@
 import { ref, watch } from 'vue'
 import { io, Socket } from 'socket.io-client'
+import { isElectron } from '../utils/platform'
+import { Filesystem, Directory } from '@capacitor/filesystem'
 // 更改为全局变量
 
 // === 发送端状态定义 ===
@@ -170,7 +172,7 @@ const setupDataChannel = (channel: RTCDataChannel) => {
   const onChannelOpen = () => {
     console.log('P2P 通道打通！')
     isP2PReady.value = true
-    
+
     // 发送身份握手
     channel.send(JSON.stringify({
       type: 'identity-handshake',
@@ -246,7 +248,7 @@ const handleDisconnect = (reason: string) => {
     receiveStatus.value = 'error'
     receiveError.value = `传输意外中断: ${reason}` // 记录错误原因
     receiveSpeed.value = '0 B/s'
-    
+
     // 强制关闭文件流，防止文件被锁定
     window.myElectronAPI?.finishReceiveFile().catch(err => console.error(err))
   }
@@ -503,6 +505,17 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
 // === 接收逻辑 ===
 let lastReceiveTime = Date.now()
 let lastReceiveOffset = 0
+let webReceiveBuffer: BlobPart[] = [] // 移动端专用内存缓冲区
+
+const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+  let binary = ''
+  const bytes = new Uint8Array(buffer)
+  const len = bytes.byteLength
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return window.btoa(binary)
+}
 
 const handleFileMeta = async (meta: { name: string, size: number }) => {
   // 重置内部计数器
@@ -522,13 +535,30 @@ const handleFileMeta = async (meta: { name: string, size: number }) => {
   // 重置速度计算器
   lastReceiveTime = Date.now()
   lastReceiveOffset = 0
+  if (isElectron()) {
+    // 电脑端
 
-  // 获取用户设置的路径（如果有）
-  const savedPath = localStorage.getItem('instadrop_save_path')
-  const targetPath = (savedPath && savedPath !== '默认 (下载/Instadrop)') ? savedPath : undefined
+    // 获取用户设置的路径（如果有）
+    const savedPath = localStorage.getItem('instadrop_save_path')
+    const targetPath = (savedPath && savedPath !== '默认 (下载/Instadrop)') ? savedPath : undefined
 
-  // 调用 Electron 主进程：创建一个新文件写入流
-  await window.myElectronAPI?.startReceiveFile(meta.name, meta.size, targetPath)
+    // 调用 Electron 主进程：创建一个新文件写入流
+    await window.myElectronAPI?.startReceiveFile(meta.name, meta.size, targetPath)
+  } else {
+    // 移动端 先创建一个空文件
+    try {
+      await Filesystem.writeFile({
+        path: `Instadrop/${meta.name}`,
+        data: '', // 初始化
+        directory: Directory.Documents,
+        recursive: true
+      })
+    } catch (e) {
+      console.error('初始化手机文件失败:', e)
+      receiveStatus.value = 'error'
+      receiveError.value = '无法在手机上创建文件'
+    }
+  }
 }
 
 const handleFileChunk = async (chunk: ArrayBuffer) => {
@@ -538,8 +568,21 @@ const handleFileChunk = async (chunk: ArrayBuffer) => {
   const chunkSize = chunk.byteLength
   internalReceivedSize += chunkSize
 
-  // 调用 Electron 主进程：追加写入数据
-  await window.myElectronAPI?.receiveFileChunk(chunk)
+  if (isElectron()) {
+    // 调用 Electron 主进程：追加写入数据
+    await window.myElectronAPI?.receiveFileChunk(chunk)
+  } else {
+    try {
+      const base64Chunk = arrayBufferToBase64(chunk)
+      await Filesystem.appendFile({
+        path: `Instadrop/${currentReceivingFile.value.name}`,
+        data: base64Chunk,
+        directory: Directory.Documents
+      })
+    } catch (e) {
+      console.error('手机端追加写入切片失败:', e)
+    }
+  }
 
   // 计算速度 (每 500ms 更新一次 UI)
   const now = Date.now()
@@ -550,7 +593,7 @@ const handleFileChunk = async (chunk: ArrayBuffer) => {
     lastUIUpdateTime = now
   }
 
-  // 4. 计算速度 (保持每 500ms 一次，逻辑不变)
+  // 计算速度 (保持每 500ms 一次，逻辑不变)
   if (now - lastReceiveTime >= 500) {
     const speed = ((internalReceivedSize - lastReceiveOffset) / (now - lastReceiveTime)) * 1000
     receiveSpeed.value = formatSpeed(speed)
@@ -566,12 +609,18 @@ const handleFileTransferDone = async () => {
   if (currentReceivingFile.value) {
     currentReceivingFile.value.receivedSize = currentReceivingFile.value.size
   }
-  // 调用 Electron 主进程：关闭文件流
-  await window.myElectronAPI?.finishReceiveFile()
+
+  if (isElectron()) {
+    // 调用 Electron 主进程：关闭文件流
+    await window.myElectronAPI?.finishReceiveFile()
+  } else {
+    // 手机端此时已存储完毕 直接关闭即可
+    console.log(`文件已完整保存到 Documents/Instadrop/${currentReceivingFile.value?.name}`)
+  }
 }
 
 // 去掉 new Promise 包装，直接声明 async 函数
-const sendFile = async (filePath: string): Promise<void> => {
+const sendFile = async (fileOrPath: string | File): Promise<void> => {
   // 2. 检查前置条件
   const channel = dataChannel
   if (!channel || channel.readyState !== 'open') {
@@ -580,7 +629,20 @@ const sendFile = async (filePath: string): Promise<void> => {
 
   try {
     isCancelled.value = false
-    const { name, size } = await window.myElectronAPI.getFileInfo(filePath)
+
+    // 1. 双端获取文件元数据
+    let name = ''
+    let size = 0
+    if (isElectron() && typeof fileOrPath === 'string') {
+      const info = await window.myElectronAPI.getFileInfo(fileOrPath)
+      name = info.name
+      size = info.size
+    } else if (fileOrPath instanceof File) {
+      name = fileOrPath.name
+      size = fileOrPath.size
+    } else {
+      throw new Error('无效的文件输入')
+    }
     currentFile.value = { name, size }
 
     channel.send(JSON.stringify({ type: 'meta', name, size }))
@@ -632,7 +694,21 @@ const sendFile = async (filePath: string): Promise<void> => {
         continue
       }
 
-      const chunk = await window.myElectronAPI.readFileChunk(filePath, offset, chunkSize)
+      // 🔥 区分环境：读取文件切片
+      let chunkData: ArrayBuffer | Uint8Array
+      if (isElectron() && typeof fileOrPath === 'string') {
+        chunkData = await window.myElectronAPI.readFileChunk(fileOrPath, offset, chunkSize)
+      } else if (fileOrPath instanceof File) {
+        const blobSlice = fileOrPath.slice(offset, offset + chunkSize)
+        chunkData = await blobSlice.arrayBuffer()
+      } else {
+        throw new Error('读取文件失败')
+      }
+
+      if (channel.readyState !== 'open' || isCancelled.value) {
+        if (isCancelled.value) throw new Error('传输已被手动终止')
+        throw new Error('disconnected')
+      }
 
       // 发送前最后一次检查
       if (channel.readyState !== 'open' || isCancelled.value) {
@@ -640,8 +716,8 @@ const sendFile = async (filePath: string): Promise<void> => {
         throw new Error('disconnected')
       }
 
-      channel.send(chunk as any)
-      offset += chunk.length
+      channel.send(chunkData as any)
+      offset += chunkData.byteLength
       fileProgress.value = Math.round((offset / size) * 100)
 
       // 速度计算
