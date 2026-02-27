@@ -67,7 +67,9 @@ jobs:
       - name: Build Android APK
         working-directory: ./android
         # 这里默认打包 debug 版本，不需要复杂的签名配置即可安装测试
-        run: ./gradlew assembleDebug 
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
 
       - name: Upload Android Artifact
         uses: actions/upload-artifact@v4
@@ -97,6 +99,10 @@ jobs:
 
       - name: Sync Capacitor iOS
         run: npx cap sync ios
+
+      - name: Install CocoaPods dependencies
+        working-directory: ./ios/App
+        run: pod install --repo-update
 
       # 🔥 核心：强制禁用 Xcode 的签名机制，直接编译真机版 (iphoneos) 纯净二进制程序
       - name: Build iOS App (Unsigned)
