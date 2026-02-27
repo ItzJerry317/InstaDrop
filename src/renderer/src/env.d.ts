@@ -20,6 +20,8 @@ declare global {
       finishReceiveFile: () => Promise<void>
       openDownloadsFolder: (path?: string) => Promise<void>
       selectFolder: () => Promise<string | null>
+      getAutoStartStatus: () => Promise<boolean>
+      setAutoStart: (enable: boolean) => Promise<boolean>;
     }
   }
 }

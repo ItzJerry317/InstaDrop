@@ -7,6 +7,20 @@ import { marked } from 'marked'
 
 const theme = useTheme()
 
+// === 开机自启检测 ===
+const autoStartEnabled = ref(false)
+const toggleAutoStart = async () => {
+  if (isElectron()) {
+    try {
+      await window.myElectronAPI?.setAutoStart(autoStartEnabled.value)
+      triggerSnackbar(autoStartEnabled.value ? '已开启开机自启' : '已关闭开机自启', 'success')
+    } catch (error) {
+      console.error('设置开机自启失败:', error)
+      triggerSnackbar('设置开机自启失败', 'error')
+    }
+  }
+}
+
 // === 检查更新状态 ===
 const currentVersion = ref('v1.0.0') // 你的当前版本号
 const isCheckingUpdate = ref(false)
@@ -21,11 +35,11 @@ const handleMarkdownClick = (e: MouseEvent) => {
   const target = e.target as HTMLElement
   // 向上查找被点击的元素是否是 <a> 标签（使用 closest 可以兼容 <a> 内部嵌套了其他标签的情况）
   const aTag = target.closest('a')
-  
+
   if (aTag && aTag.href) {
     e.preventDefault() // 阻止默认的当前页面跳转行为
     // 使用你们项目里已经验证过的跨平台外部打开方式
-    window.open(aTag.href, '_blank') 
+    window.open(aTag.href, '_blank')
   }
 }
 
@@ -172,7 +186,7 @@ const defaultPathText = '默认 (下载/Instadrop)'
 const getInitialPath = () => {
   const saved = localStorage.getItem('instadrop_save_path')
   if (!saved) return defaultPathText
-  if (!isElectron && saved !== defaultPathText) return `Documents/${saved}`
+  if (!isElectron() && saved !== defaultPathText) return `Documents/${saved}`
   return saved
 }
 const downloadPath = ref(getInitialPath())
@@ -209,8 +223,18 @@ const saveMobilePath = () => {
 }
 
 // 初始化时应用一次主题
-onMounted(() => {
+onMounted(async () => {
   applyTheme(themePreference.value)
+  if (isElectron()) {
+    try {
+      const status = await window.myElectronAPI?.getAutoStartStatus()
+      if (status !== undefined) {
+        autoStartEnabled.value = status
+      }
+    } catch (e) {
+      console.error('无法读取开机自启状态:', e)
+    }
+  }
 })
 </script>
 
@@ -224,7 +248,8 @@ onMounted(() => {
 
         <v-list-item title="开机自启" subtitle="在系统启动时自动运行 Instadrop" v-if="isElectron()">
           <template v-slot:prepend><v-icon icon="mdi-rocket-launch" color="grey"></v-icon></template>
-          <template v-slot:append><v-switch color="primary" hide-details density="compact"></v-switch></template>
+          <template v-slot:append><v-switch color="primary" hide-details density="compact"
+              @change="toggleAutoStart" v-model="autoStartEnabled"></v-switch></template>
         </v-list-item>
 
         <v-divider v-if="isElectron()"></v-divider>
@@ -370,11 +395,8 @@ onMounted(() => {
           <div class="mt-6 font-weight-bold text-primary">
             <v-icon icon="mdi-clipboard-text-outline" size="small" class="mr-1"></v-icon>更新日志：
           </div>
-          <div 
-            class="bg-surface-variant pa-4 rounded-lg mt-2 text-body-2 markdown-body" 
-            v-html="parsedReleaseNotes"
-            @click="handleMarkdownClick"
-          ></div>
+          <div class="bg-surface-variant pa-4 rounded-lg mt-2 text-body-2 markdown-body" v-html="parsedReleaseNotes"
+            @click="handleMarkdownClick"></div>
         </v-card-text>
 
         <v-card-actions class="pa-4 pt-2">
@@ -402,6 +424,7 @@ onMounted(() => {
   margin-bottom: 8px;
   line-height: 1.6;
 }
+
 .markdown-body :deep(h1),
 .markdown-body :deep(h2),
 .markdown-body :deep(h3),
@@ -410,14 +433,17 @@ onMounted(() => {
   margin-bottom: 8px;
   font-weight: bold;
 }
+
 .markdown-body :deep(ul),
 .markdown-body :deep(ol) {
   margin-left: 24px;
   margin-bottom: 12px;
 }
+
 .markdown-body :deep(li) {
   margin-bottom: 4px;
 }
+
 .markdown-body :deep(blockquote) {
   border-left: 4px solid #aaa;
   padding-left: 12px;
@@ -427,13 +453,16 @@ onMounted(() => {
   padding: 8px 12px;
   border-radius: 0 4px 4px 0;
 }
+
 .markdown-body :deep(a) {
   color: #2196F3;
   text-decoration: none;
 }
+
 .markdown-body :deep(a:hover) {
   text-decoration: underline;
 }
+
 .markdown-body :deep(strong) {
   font-weight: 900;
   color: inherit;

@@ -9,18 +9,21 @@ import {
    turnUrl, 
    turnUser, 
    turnPass, 
-   savePath} 
+   savePath
+  } 
    from '../store/localStorageRead'
 
 
 // 存储主进程传来的系统信息
 const sysInfo = ref<SystemInfo | null>(null)
 const latencyTestShow = ref(false)
+const isAutoStart = ref(false)
 var latency = ref(0)
 
 onMounted(async () => {
   // 页面加载时请求数据
   sysInfo.value = await window.myElectronAPI.getSystemInfo()
+  isAutoStart.value = await window.myElectronAPI.getAutoStartStatus()
 })
 
 // 测试 IPC 通信
@@ -123,6 +126,10 @@ const handlePing = async () => {
           <div class="d-flex justify-space-between mb-2">
             <span>下载文件默认保存路径：</span>
             <span class="text-primary font-weight-bold">{{ savePath }}</span>
+          </div>
+          <div class="d-flex justify-space-between mb-2">
+            <span>开机自启：</span>
+            <span class="text-primary font-weight-bold">{{ isAutoStart }}</span>
           </div>
         </v-card-text>
         <v-card-text v-else>

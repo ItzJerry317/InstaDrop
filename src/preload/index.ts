@@ -31,6 +31,8 @@ const electronAPI = {
   finishReceiveFile: () => ipcRenderer.invoke('finish-receive-file'),
   openDownloadsFolder: (path?: string) => ipcRenderer.invoke('open-downloads-folder', path),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+  getAutoStartStatus: () => ipcRenderer.invoke('get-auto-start-status'),
+  setAutoStart: (enable: boolean) => ipcRenderer.invoke('set-auto-start', enable)
 };
 
 declare global {

@@ -70,6 +70,20 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  ipcMain.handle('get-auto-start-status', () => {
+    const settings = app.getLoginItemSettings()
+    return settings.openAtLogin
+  })
+
+  // 设置开机自启状态
+  ipcMain.handle('set-auto-start', (_event, enable: boolean) => {
+    app.setLoginItemSettings({
+      openAtLogin: enable,
+      path: app.getPath('exe') // 明确指定当前执行程序的路径 (Windows 强依赖此项)
+    })
+    return app.getLoginItemSettings().openAtLogin
+  })
+
   ipcMain.handle('select-folder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openDirectory', 'createDirectory', 'promptToCreate'],
