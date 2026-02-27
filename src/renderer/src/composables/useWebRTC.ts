@@ -67,7 +67,7 @@ const startWatchdog = (timeoutMs = 10000) => {
   clearWatchdog() // 启动前先清理旧的
   watchdogTimer = setTimeout(() => {
     console.error('[Watchdog] WebRTC 连接超时 (ICE Blackhole)')
-    connectionError.value = '建立WebRTC连接超时！请检查是否开启了 VPN、代理或处于严格的局域网中，建议关闭 VPN 后重试。'
+    connectionError.value = '建立WebRTC连接超时！请检查双方是否开启了 VPN、代理或处于严格的局域网中。'
     
     // 主动掐断卡死的连接
     handleDisconnect('连接超时')

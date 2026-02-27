@@ -14,3 +14,6 @@ export const isMobileApp = () => {
 export const isWeb = () => {
   return !isElectron() && !isMobileApp();
 };
+
+export const isIOS = () => Capacitor.getPlatform() === 'ios';
+export const isAndroid = () => Capacitor.getPlatform() === 'android';

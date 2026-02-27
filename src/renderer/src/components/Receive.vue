@@ -29,12 +29,15 @@ const {
   sendStatus
 } = useWebRTC()
 
-// === 接收状态 (TODO: 下一步我们需要在 useWebRTC.ts 中真正实现这些状态) ===
-// 目前先用本地 ref 模拟 UI 效果，等会去底层接通
-// const receiveStatus = ref<'idle' | 'receiving' | 'done' | 'error'>('idle')
-// const currentReceivingFile = ref<{ name: string, size: number, receivedSize: number } | null>(null)
-// const receiveProgress = ref(0)
-// const receiveSpeed = ref('0 B/s')
+const defaultPathText = 'Documents/Instadrop'
+const getInitialPath = () => {
+  const saved = localStorage.getItem('instadrop_save_path')
+  if (!saved) return defaultPathText
+  if (!isElectron() && saved !== defaultPathText) return `Documents/${saved}`
+  return saved
+}
+const downloadPath = ref(getInitialPath())
+
 const tempRoomCode = ref('')
 const connectBtnDisabled = ref(false)
 const isJoining = ref(false)
@@ -269,7 +272,7 @@ const formatSize = (bytes: number) => {
 
             <div v-if="receiveStatus === 'done' && !isElectron()"
               class="mt-6 text-success font-weight-bold text-center">
-              <v-icon icon="mdi-check-circle" class="mr-1"></v-icon> 已保存至手机 Documents/Instadrop
+              <v-icon icon="mdi-check-circle" class="mr-1"></v-icon> 已保存至手机 {{ downloadPath }}
             </div>
 
 

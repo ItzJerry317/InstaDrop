@@ -2,7 +2,7 @@
 import { ref, watch, onMounted, computed } from 'vue'
 import { useTheme } from 'vuetify'
 import { themePreference } from '../store/localStorageRead'
-import { isElectron } from '../utils/platform'
+import { isElectron, isAndroid, isIOS } from '../utils/platform'
 import { marked } from 'marked'
 
 const theme = useTheme()
@@ -360,8 +360,11 @@ onMounted(async () => {
         <v-divider></v-divider>
 
         <v-card-text class="px-5 pt-5 pb-2">
-          <div class="text-caption text-medium-emphasis mb-4">
+          <div class="text-caption text-medium-emphasis mb-4" v-if="isAndroid()">
             受限于安卓系统安全策略，文件将固定保存在公共存储的 <strong>Documents</strong> 目录下。您可以自定义专属的子文件夹名称：
+          </div>
+          <div class="text-caption text-medium-emphasis mb-4" v-if="isIOS()">
+            受限于苹果系统安全策略，文件将固定保存在 <strong>文件</strong> APP的目录 <strong>InstaDrop</strong>下。您可以自定义专属的子文件夹名称：
           </div>
           <v-text-field v-model="tempMobilePath" label="子文件夹名称" variant="outlined" density="compact" autofocus
             @keyup.enter="saveMobilePath" prefix="Documents/"></v-text-field>
