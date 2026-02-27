@@ -22,7 +22,7 @@ const toggleAutoStart = async () => {
 }
 
 // === 检查更新状态 ===
-const currentVersion = ref('v1.0.8') // 你的当前版本号
+const currentVersion = ref('v1.1.0') // 你的当前版本号
 const isCheckingUpdate = ref(false)
 const hasNewVersion = ref(false)
 const showUpdateDialog = ref(false)
