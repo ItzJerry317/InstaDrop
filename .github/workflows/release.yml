@@ -1,19 +1,16 @@
-name: Build & Release
+name: Build Instadrop (Win, Android, iOS)
 
-# 触发条件：只有推送以 'v' 开头的 tag 时才触发 (例如 v1.0.0)
 on:
   push:
-    tags:
-      - 'v*'
-
-permissions:
-  contents: write
+    branches: [ main ] # 当推送到 main 分支时自动触发
+  workflow_dispatch:   # 允许你在 GitHub 网页上手动点击运行
 
 jobs:
-  release:
-    name: Build Windows App
+  # ==========================================
+  # 1. 编译 Windows (Electron) 端
+  # ==========================================
+  build-windows:
     runs-on: windows-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -21,19 +18,112 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: '20' # 建议使用 LTS 版本
 
       - name: Install Dependencies
         run: npm install
 
-      # 编译 Vue 和 TS 代码 (对应本地 npm run build)
-      - name: Build Source
+      # 注意：请确保你的 package.json 中有 build:win 或相应的 electron-builder 命令
+      - name: Build Windows App
+        run: npm run build # 如果你是 Vite，先编译前端
+      - name: Build Electron Executable
+        run: npx electron-builder --win
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Instadrop-Windows-Exe
+          path: dist/*.exe # 根据你 electron-builder 的实际输出目录调整，通常是 dist/ 或 release/
+
+  # ==========================================
+  # 2. 编译 Android (Capacitor) 端
+  # ==========================================
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java (Android Require)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17' # 现代 Android 开发通常需要 JDK 17
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Frontend (Vue)
         run: npm run build
 
-      # 打包成 exe 并上传
-      # GH_TOKEN 是 GitHub 自动生成的
-      - name: Build & Publish Electron App
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --publish always
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      - name: Build Android APK
+        working-directory: ./android
+        # 这里默认打包 debug 版本，不需要复杂的签名配置即可安装测试
+        run: ./gradlew assembleDebug 
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Instadrop-Android-APK
+          path: android/app/build/outputs/apk/debug/*.apk
+
+  # ==========================================
+  # 3. 编译 iOS (万能自签版 IPA，任何人可用 AltStore/Sideloadly 安装)
+  # ==========================================
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Frontend (Vue)
+        run: npm run build
+
+      - name: Sync Capacitor iOS
+        run: npx cap sync ios
+
+      # 🔥 核心：强制禁用 Xcode 的签名机制，直接编译真机版 (iphoneos) 纯净二进制程序
+      - name: Build iOS App (Unsigned)
+        working-directory: ./ios/App
+        run: |
+          xcodebuild clean build \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath build
+
+      # 🔥 手动打包 IPA：建一个 Payload 文件夹，把 App 塞进去，压缩，改名！
+      - name: Package into IPA
+        working-directory: ./ios/App
+        run: |
+          mkdir -p Payload
+          # 将编译好的纯净版 App.app 复制到 Payload 目录
+          cp -r build/Build/Products/Release-iphoneos/App.app Payload/
+          # 压缩为 ipa
+          zip -r Instadrop.ipa Payload
+
+      - name: Upload Universal IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Instadrop-iOS-Universal
+          path: ios/App/Instadrop.ipa
