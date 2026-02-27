@@ -27,6 +27,8 @@ jobs:
       - name: Build Windows App
         run: npm run build # 如果你是 Vite，先编译前端
       - name: Build Electron Executable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win
 
       - name: Upload Windows Artifact
@@ -53,7 +55,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17' # 现代 Android 开发通常需要 JDK 17
+          java-version: '21'
 
       - name: Install Dependencies
         run: npm install
@@ -102,7 +104,9 @@ jobs:
 
       - name: Install CocoaPods dependencies
         working-directory: ./ios/App
-        run: pod install --repo-update
+        run: |
+          cd ios/App
+          pod install --repo-update
 
       # 🔥 核心：强制禁用 Xcode 的签名机制，直接编译真机版 (iphoneos) 纯净二进制程序
       - name: Build iOS App (Unsigned)
