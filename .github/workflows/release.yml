@@ -2,7 +2,10 @@ name: Build Instadrop (Win, Android, iOS)
 
 on:
   push:
-    branches: [ main ] # 当推送到 main 分支时自动触发
+    branches:
+      - main # 当推送到 main 分支时自动触发
+    tags:
+      - 'v*'
   workflow_dispatch:   # 允许你在 GitHub 网页上手动点击运行
 
 jobs:

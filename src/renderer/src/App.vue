@@ -135,6 +135,8 @@ body {
   margin: 0;
   padding: 0;
   overflow-y: hidden !important;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 #app,
