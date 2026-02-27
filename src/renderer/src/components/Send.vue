@@ -262,13 +262,18 @@ const processFiles = async () => {
         await sendFile(file.path)
       } else if (file.rawFile) {
         await sendFile(file.rawFile)
+      } else {
+        await sendFile(file.path)
       }
     }
-    if (sendStatus.value.status !== 'idle') {
+    if (sendStatus.value.status !== 'idle' && sendStatus.value.status !== 'error') {
       sendStatus.value = { status: 'done', message: '全部文件传输完成' }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('传输任务结束或被终止：', error)
+    if (error.message && error.message !== 'disconnected' && error.message !== '传输已被手动终止') {
+      triggerSnackbar(`传输失败: ${error.message}`, 'error')
+    }
   }
 }
 
@@ -320,7 +325,7 @@ onMounted(() => {
   } else {
     // 如果已经连上了，而且还没房号，那就建一个
     setTimeout(() => {
-       if (isConnected.value && !roomCode.value) createRoom()
+      if (isConnected.value && !roomCode.value) createRoom()
     }, 500)
   }
 })
@@ -351,19 +356,19 @@ onMounted(() => {
               </span>
             </div>
 
-            <v-btn :disabled="connectBtnDisabled" :color="isConnected ? 'error' : 'success'" variant="elevated" size="small"
-              @click="
-                if (!isConnected) {connectToServer(true); disableConnectBtnTemporarily()}
-                else if (isP2PReady) {handleDisconnect()} // 有人连着时，只踢人
-                else refreshShareCode(); // 没人连着时，刷新取件码
-              ">
-              {{(!isConnected && !connectBtnDisabled) ? '连接服务器' : (!isConnected && connectBtnDisabled) ? '连接中...' : (isP2PReady ? '断开连接' : '刷新取件码') }}
+            <v-btn :disabled="connectBtnDisabled" :color="isConnected ? 'error' : 'success'" variant="elevated"
+              size="small" @click="
+                if (!isConnected) { connectToServer(true); disableConnectBtnTemporarily() }
+              else if (isP2PReady) { handleDisconnect() } // 有人连着时，只踢人
+              else refreshShareCode(); // 没人连着时，刷新取件码
+                ">
+              {{ (!isConnected && !connectBtnDisabled) ? '连接服务器' : (!isConnected && connectBtnDisabled) ? '连接中...' :
+                (isP2PReady ?
+              '断开连接' : '刷新取件码') }}
             </v-btn>
           </v-card-text>
         </v-card>
-        <v-alert class="mb-4" v-if="receiveStatus !== 'idle'"
-        text="当前有正在进行的接收进程，请前往 接收 页面查看" type="warning"
-        ></v-alert>
+        <v-alert class="mb-4" v-if="receiveStatus !== 'idle'" text="当前有正在进行的接收进程，请前往 接收 页面查看" type="warning"></v-alert>
 
         <input type="file" ref="fileInputRef" multiple style="display: none;" @change="handleFileSelect" />
 
@@ -608,7 +613,8 @@ onMounted(() => {
           <div class="text-caption text-medium-emphasis mb-1">
             原设备名称 (由对方设置，不可修改)
           </div>
-          <span> {{ tempEditDeviceOriginalName }}</span> <div class="text-caption text-medium-emphasis">(uuid: {{ tempEditDeviceId }})</div>
+          <span> {{ tempEditDeviceOriginalName }}</span>
+          <div class="text-caption text-medium-emphasis">(uuid: {{ tempEditDeviceId }})</div>
           <div style="height: 5px;"></div>
           <div class="text-caption text-medium-emphasis mb-2">自定义备注名称</div>
           <v-text-field v-model="tempEditDeviceRemark" variant="outlined" density="compact" autofocus

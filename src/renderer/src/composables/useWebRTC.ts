@@ -50,6 +50,7 @@ let socket: Socket | null = null
 let peerConnection: RTCPeerConnection | null = null
 let dataChannel: RTCDataChannel | null = null
 let pendingCandidates: RTCIceCandidateInit[] = []
+let transferRequestResolver: ((value: boolean | string) => void) | null = null
 // 获取房间码防抖
 let lastAutoCreateTime = 0
 
@@ -216,6 +217,30 @@ const setupDataChannel = (channel: RTCDataChannel) => {
     try {
       // 这里处理握手消息，如果收到 identity-handshake，就存入信任列表
       const msg = JSON.parse(e.data as string)
+      if (msg.type === 'request-transfer') {
+        // 检查本地是否正在收/发文件
+        const isBusy = receiveStatus.value === 'receiving' ||
+          sendStatus.value.status === 'sending' ||
+          sendStatus.value.status === 'paused'
+
+        if (isBusy) {
+          channel.send(JSON.stringify({ type: 'response-transfer', accepted: false, reason: '对方设备正忙 (正在传输其他文件)，请稍后再试' }))
+        } else {
+          channel.send(JSON.stringify({ type: 'response-transfer', accepted: true }))
+        }
+        return
+      }
+      if (msg.type === 'response-transfer') {
+        if (transferRequestResolver) {
+          if (msg.accepted) {
+            transferRequestResolver(true)
+          } else {
+            transferRequestResolver(msg.reason)
+          }
+          transferRequestResolver = null
+        }
+        return
+      }
       if (msg.type === 'identity-handshake') {
         console.log('收到身份握手:', msg.name)
         addTrustedDevice(msg.id, msg.name)
@@ -712,7 +737,25 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
   try {
     isCancelled.value = false
-
+    if (receiveStatus.value === 'receiving') {
+      throw new Error('本地正在接收文件，无法同时发送')
+    }
+    sendStatus.value = { status: 'idle', message: '正在等待对方确认...' }
+    const canSend = await new Promise<boolean | string>((resolve) => {
+      transferRequestResolver = resolve
+      dataChannel!.send(JSON.stringify({ type: 'request-transfer' }))
+      setTimeout(() => {
+        if (transferRequestResolver) {
+          transferRequestResolver('请求对方状态超时，请检查网络')
+          transferRequestResolver = null
+        }
+      }, 5000)
+    })
+    if (canSend !== true) {
+      sendStatus.value = { status: 'error', message: canSend as string }
+      throw new Error(canSend as string)
+    }
+    sendStatus.value = {status: 'sending'}
     // 1. 双端获取文件元数据
     let name = ''
     let size = 0
