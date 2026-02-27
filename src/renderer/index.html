@@ -1,14 +1,30 @@
 <!doctype html>
 <html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>InstaDrop</title>
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src *;" />
-  </head>
 
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <title>InstaDrop</title>
+  <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src *;" />
+  <script>
+    window.onerror = function (message, source, lineno, colno, error) {
+      var errText = "崩溃日志: " + message + "\n文件: " + source + "\n行号: " + lineno;
+      alert(errText); // 直接弹窗报错
+      // 强制在白屏上写出红色的错误字
+      document.body.innerHTML = '<div style="color:red; font-size:14px; padding:20px; word-break:break-all;">' + errText + '<br><br>' + (error && error.stack ? error.stack : '') + '</div>';
+    };
+    window.addEventListener("unhandledrejection", function (event) {
+      var errText = "Promise崩溃: " + (event.reason ? event.reason.toString() : '未知异常');
+      alert(errText);
+      document.body.innerHTML = '<div style="color:red; font-size:14px; padding:20px; word-break:break-all;">' + errText + '</div>';
+    });
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
 </html>

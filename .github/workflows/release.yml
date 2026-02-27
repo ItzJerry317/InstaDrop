@@ -154,11 +154,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ github.ref_name }} # 自动提取你的 tag 名字作为标题
-          draft: true  # 🔥 生成草稿 (Draft)，等你确认无误后再手动发布
+          draft: true
           prerelease: false
           generate_release_notes: true # 自动生成一份包含 commit 记录的更新日志
           files: |
-            # 把三个端的文件全部塞进这个 Release 里
             all-artifacts/Instadrop-Windows-Exe/*.exe
             all-artifacts/Instadrop-Android-APK/*.apk
             all-artifacts/Instadrop-iOS-Universal/*.ipa
