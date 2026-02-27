@@ -129,3 +129,38 @@ jobs:
         with:
           name: Instadrop-iOS-Universal
           path: ios/App/Instadrop.ipa
+          
+  # ==========================================
+  # 4. 汇总打包并创建 GitHub Release 草稿
+  # ==========================================
+  create-release:
+    needs: [build-windows, build-android, build-ios]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') 
+    
+    steps:
+      # 1. 把前面三个 job 上传的附件全部下载到这台服务器上
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts # 下载到名为 all-artifacts 的文件夹里
+
+      # 2. 查看一下下载的文件结构（方便你在日志里排错）
+      - name: Display downloaded files
+        run: ls -R all-artifacts
+
+      # 3. 使用官方推荐的插件自动创建 Release 并附加文件
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }} # 自动提取你的 tag 名字作为标题
+          draft: true  # 🔥 生成草稿 (Draft)，等你确认无误后再手动发布
+          prerelease: false
+          generate_release_notes: true # 自动生成一份包含 commit 记录的更新日志
+          files: |
+            # 把三个端的文件全部塞进这个 Release 里
+            all-artifacts/Instadrop-Windows-Exe/*.exe
+            all-artifacts/Instadrop-Android-APK/*.apk
+            all-artifacts/Instadrop-iOS-Universal/*.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # GitHub 提供的自动授权 Token
