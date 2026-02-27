@@ -203,7 +203,8 @@ const processFileList = (files: FileList) => {
           name: file.name,
           path: actualPath,
           size: file.size,
-          formattedSize: formatFileSize(file.size)
+          formattedSize: formatFileSize(file.size),
+          status: 'pending'
         })
       }
     } else {
@@ -213,7 +214,8 @@ const processFileList = (files: FileList) => {
           path: file.name, // 手机端给个虚拟路径显示用
           size: file.size,
           formattedSize: formatFileSize(file.size),
-          rawFile: file
+          rawFile: file,
+          status: 'pending'
         })
       }
     }
@@ -258,6 +260,8 @@ const processFiles = async () => {
 
   try {
     for (const file of droppedFiles.value) {
+      if (file.status === 'done') continue
+      file.status = 'sending'
       if (isElectron()) {
         await sendFile(file.path)
       } else if (file.rawFile) {
@@ -265,11 +269,16 @@ const processFiles = async () => {
       } else {
         await sendFile(file.path)
       }
+      file.status = 'done'
     }
     if (sendStatus.value.status !== 'idle' && sendStatus.value.status !== 'error') {
       sendStatus.value = { status: 'done', message: '全部文件传输完成' }
     }
   } catch (error: any) {
+    const sendingFile = droppedFiles.value.find(f => f.status === 'sending')
+    if (sendingFile) {
+      sendingFile.status = 'error'
+    }
     console.error('传输任务结束或被终止：', error)
     if (error.message && error.message !== 'disconnected' && error.message !== '传输已被手动终止') {
       triggerSnackbar(`传输失败: ${error.message}`, 'error')
@@ -364,7 +373,7 @@ onMounted(() => {
                 ">
               {{ (!isConnected && !connectBtnDisabled) ? '连接服务器' : (!isConnected && connectBtnDisabled) ? '连接中...' :
                 (isP2PReady ?
-              '断开连接' : '刷新取件码') }}
+                  '断开连接' : '刷新取件码') }}
             </v-btn>
           </v-card-text>
         </v-card>
@@ -378,10 +387,14 @@ onMounted(() => {
           style="border: 2px dashed rgba(150, 150, 150, 0.4); cursor: pointer;">
           <v-icon :icon="isDragging ? 'mdi-package-down' : 'mdi-cloud-upload-outline'" size="80"
             :color="isDragging ? 'white' : 'primary'" class="mb-4"></v-icon>
-          <h2 class="text-h4 font-weight-bold mb-2">
+          <h2 class="text-h4 font-weight-bold mb-2" v-if="isElectron()">
             {{ isDragging ? '松开鼠标，即可选定文件' : '将文件拖拽至此' }}
           </h2>
-          <p class="text-medium-emphasis">支持任意格式文件，也可点击上传。支持多选文件。</p>
+          <h2 class="text-h4 font-weight-bold mb-2" v-if="!isElectron()">
+            点击此处选择文件
+          </h2>
+          <p class="text-medium-emphasis" v-if="isElectron()">支持任意格式文件，也可点击上传。支持多选文件。</p>
+          <p class="text-medium-emphasis" v-if="!isElectron()">支持任意格式文件，支持多选文件。</p>
         </v-card>
 
         <v-expand-transition>
@@ -402,6 +415,12 @@ onMounted(() => {
                   </div>
                 </template>
                 <template v-slot:append>
+                  <v-progress-circular v-if="file.status === 'sending'" indeterminate size="20" width="2"
+                    color="primary" class="mr-2"></v-progress-circular>
+
+                  <v-icon v-else-if="file.status === 'done'" color="success" class="mr-2">mdi-check-circle</v-icon>
+
+                  <v-icon v-else-if="file.status === 'error'" color="error" class="mr-2">mdi-alert-circle</v-icon>
                   <v-btn icon variant="text" color="error" size="small" @click="removeFile(index)"
                     :disabled="sendStatus.status === 'sending' || sendStatus.status === 'paused'">
                     <v-icon>
@@ -416,7 +435,8 @@ onMounted(() => {
               <v-list-item>
                 <span class="text-primary font-weight-bold">
                   {{ sendStatus.status === "idle" ? "等待传输" :
-                    sendStatus.status === "sending" ? (sendStatus.message === '等待对方保存文件' ? "正在发送：等待对方保存文件" : "正在传输：" + (currentFile?.name || '未知文件')) :
+                    sendStatus.status === "sending" ? (sendStatus.message === '等待对方保存文件' ? "正在发送：等待对方保存文件" : "正在传输：" +
+                      (currentFile?.name || '未知文件')) :
                       sendStatus.status === "paused" ? "已暂停传输：" + (currentFile?.name || '未知文件') :
                         sendStatus.status === "done" ? "所有文件传输完成" : "传输异常：" + (sendStatus.message || "未知原因") }}
                 </span>

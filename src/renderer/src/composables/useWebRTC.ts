@@ -25,6 +25,7 @@ export interface DroppedFile {
   size: number
   formattedSize: string
   rawFile?: File // 移动端用，原生文件对象
+  status: 'pending' | 'sending' | 'done' | 'error'
 }
 const droppedFiles = ref<DroppedFile[]>([])
 
