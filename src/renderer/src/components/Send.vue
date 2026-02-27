@@ -345,7 +345,7 @@ onMounted(() => {
               <span v-if="!isConnected" class="text-medium-emphasis">离线状态</span>
               <span v-else-if="!isP2PReady" class="font-weight-bold text-success">
                 <template v-if="roomCode === '加密直连'">
-                  正在建立无感直连安全通道...roomCode {{ roomCode }}
+                  正在建立无感直连安全通道...
                 </template>
                 <template v-else>
                   等待接入... 临时取件码: <span class="text-h6 mx-2">{{ roomCode }}</span>
