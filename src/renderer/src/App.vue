@@ -133,33 +133,40 @@ onUnmounted(() => {
 <style>
 html,
 body {
-  overflow: hidden !important;
   margin: 0;
   padding: 0;
-  overflow-y: hidden !important;
+  width: 100%;
+  height: 100%;
+  overflow: hidden !important; 
+  position: fixed; /* 锁定视口 */
 }
-
 body {
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
 }
 
 #app,
 .v-application,
 .v-application__wrap {
-  height: 100vh !important;
-  max-height: 100vh !important;
-  overflow: hidden !important;
+  height: 100% !important;
+  min-height: 100% !important;
+}
+
+.v-app-bar {
+  padding-top: env(safe-area-inset-top) !important;
+  height: calc(48px + env(safe-area-inset-top)) !important; 
 }
 
 .v-main {
+  padding-top: calc(48px + env(safe-area-inset-top)) !important;
   height: 100vh;
-  overflow-y: auto !important;
+  overflow-y: auto !important; 
+  -webkit-overflow-scrolling: touch;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -168,7 +175,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
