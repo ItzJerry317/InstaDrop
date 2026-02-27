@@ -592,32 +592,41 @@ const handleFileMeta = async (meta: { name: string, size: number }) => {
   lastReceiveOffset = 0
 
   // 重置接收队列
-  writeQueuePromise = Promise.resolve()
+  writeQueuePromise = (async () => {
+    if (isElectron()) {
+      const savedPath = localStorage.getItem('instadrop_save_path')
+      const targetPath = (savedPath && savedPath !== '默认 (下载/Instadrop)') ? savedPath : undefined
+      await window.myElectronAPI?.startReceiveFile(meta.name, meta.size, targetPath)
+    } else {
+      try {
+        const savedPath = localStorage.getItem('instadrop_save_path') || 'Instadrop'
+        const mobileDir = (savedPath === '默认 (下载/Instadrop)') ? 'Instadrop' : savedPath
 
-  if (isElectron()) {
-    // 电脑端
+        // 🔥 双重保险：显式创建父文件夹 (如果文件夹已存在会抛错，直接 catch 忽略)
+        try {
+          await Filesystem.mkdir({
+            path: mobileDir,
+            directory: Directory.Documents,
+            recursive: true
+          })
+        } catch (err) {
+          // 忽略目录已存在的错误
+        }
 
-    // 获取用户设置的路径（如果有）
-    const savedPath = localStorage.getItem('instadrop_save_path')
-    const targetPath = (savedPath && savedPath !== '默认 (下载/Instadrop)') ? savedPath : undefined
-
-    // 调用 Electron 主进程：创建一个新文件写入流
-    await window.myElectronAPI?.startReceiveFile(meta.name, meta.size, targetPath)
-  } else {
-    // 移动端 先创建一个空文件
-    try {
-      await Filesystem.writeFile({
-        path: `Instadrop/${meta.name}`,
-        data: '', // 初始化
-        directory: Directory.Documents,
-        recursive: true
-      })
-    } catch (e) {
-      console.error('初始化手机文件失败:', e)
-      receiveStatus.value = 'error'
-      receiveError.value = '无法在手机上创建文件'
+        // 等文件夹确保创建完毕后，再写入空文件初始化
+        await Filesystem.writeFile({
+          path: `${mobileDir}/${meta.name}`,
+          data: '',
+          directory: Directory.Documents,
+          recursive: true
+        })
+      } catch (e) {
+        console.error('初始化手机文件失败:', e)
+        receiveStatus.value = 'error'
+        receiveError.value = '无法在手机上创建文件'
+      }
     }
-  }
+  })()
 }
 
 const handleFileChunk = (chunk: ArrayBuffer) => {
@@ -634,9 +643,11 @@ const handleFileChunk = (chunk: ArrayBuffer) => {
       await window.myElectronAPI?.receiveFileChunk(chunk)
     } else {
       try {
+        const savedPath = localStorage.getItem('instadrop_save_path') || 'Instadrop'
+        const mobileDir = (savedPath === '默认 (下载/Instadrop)') ? 'Instadrop' : savedPath
         const base64Chunk = arrayBufferToBase64(chunk)
         await Filesystem.appendFile({
-          path: `Instadrop/${fileName}`,
+          path: `${mobileDir}/${fileName}`,
           data: base64Chunk,
           directory: Directory.Documents
         })

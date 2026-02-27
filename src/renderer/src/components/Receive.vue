@@ -5,7 +5,6 @@ import { isElectron } from '../utils/platform'
 
 // 引入核心逻辑
 const {
-  roomCode,
   isConnected,
   isP2PReady,
   connectedPeerId,
@@ -20,7 +19,6 @@ const {
   updateDeviceRemark,
   connectedPeerName,
   connectToDevice,
-  refreshShareCode,
   joinRoom,
   connectionError,
   currentReceivingFile,

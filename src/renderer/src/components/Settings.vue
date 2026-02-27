@@ -2,6 +2,7 @@
 import { ref, watch, onMounted } from 'vue'
 import { useTheme } from 'vuetify'
 import { themePreference } from '../store/localStorageRead'
+import { isElectron } from '../utils/platform'
 
 const theme = useTheme()
 
@@ -106,17 +107,43 @@ const resetNetworkSettings = () => {
 
 // === 存储路径设置 ===
 const defaultPathText = '默认 (下载/Instadrop)'
-const downloadPath = ref(localStorage.getItem('instadrop_save_path') || defaultPathText)
+const getInitialPath = () => {
+  const saved = localStorage.getItem('instadrop_save_path')
+  if (!saved) return defaultPathText
+  if (!isElectron && saved !== defaultPathText) return `Documents/${saved}`
+  return saved
+}
+const downloadPath = ref(getInitialPath())
+const showMobilePathDialog = ref(false)
+const tempMobilePath = ref('')
 
 const changeDownloadPath = async () => {
-  // 调用 Electron API 打开文件夹选择器
-  const path = await window.myElectronAPI?.selectFolder()
-  
-  if (path) {
-    downloadPath.value = path
-    localStorage.setItem('instadrop_save_path', path)
-    triggerSnackbar('默认存储位置已更新', 'success')
+  if (isElectron()) {
+    // 调用 Electron API 打开文件夹选择器
+    const path = await window.myElectronAPI?.selectFolder()
+
+    if (path) {
+      downloadPath.value = path
+      localStorage.setItem('instadrop_save_path', path)
+      triggerSnackbar('默认存储位置已更新', 'success')
+    }
+  } else {
+    const current = localStorage.getItem('instadrop_save_path')
+    tempMobilePath.value = (current && current !== defaultPathText) ? current : 'Instadrop'
+    showMobilePathDialog.value = true
   }
+}
+
+const saveMobilePath = () => {
+  // 过滤掉用户误输入的开头结尾斜杠，防止路径结构错乱
+  let cleanPath = tempMobilePath.value.trim().replace(/^\/+|\/+$/g, '')
+  if (!cleanPath) cleanPath = 'Instadrop' // 防呆保护：为空则恢复默认
+
+  downloadPath.value = `Documents/${cleanPath}`
+  localStorage.setItem('instadrop_save_path', cleanPath) // localStorage 里只存纯粹的子目录名
+
+  showMobilePathDialog.value = false
+  triggerSnackbar('默认存储位置已更新', 'success')
 }
 
 // 初始化时应用一次主题
@@ -133,12 +160,12 @@ onMounted(() => {
           常规设置
         </v-list-subheader>
 
-        <v-list-item title="开机自启" subtitle="在系统启动时自动运行 Instadrop">
+        <v-list-item title="开机自启" subtitle="在系统启动时自动运行 Instadrop" v-if="isElectron()">
           <template v-slot:prepend><v-icon icon="mdi-rocket-launch" color="grey"></v-icon></template>
           <template v-slot:append><v-switch color="primary" hide-details density="compact"></v-switch></template>
         </v-list-item>
 
-        <v-divider></v-divider>
+        <v-divider v-if="isElectron()"></v-divider>
 
         <v-list-item title="检查更新" subtitle="当前版本: v1.0.0 (已是最新版)">
           <template v-slot:prepend><v-icon icon="mdi-update" color="grey"></v-icon></template>
@@ -152,7 +179,8 @@ onMounted(() => {
         <v-list-item title="默认存储路径" :subtitle="downloadPath">
           <template v-slot:prepend><v-icon icon="mdi-folder-download" color="grey"></v-icon></template>
           <template v-slot:append>
-            <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-folder-edit" @click="changeDownloadPath">更改路径</v-btn>
+            <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-folder-edit"
+              @click="changeDownloadPath">更改路径</v-btn>
           </template>
         </v-list-item>
 
@@ -214,8 +242,8 @@ onMounted(() => {
                   density="compact"></v-text-field>
               </v-col>
               <v-col cols="6" class="py-0">
-                <v-text-field :rules="[rules.required]" v-model="tempTurnPass" label="凭证 (Credential)" variant="outlined" density="compact"
-                  type="password"></v-text-field>
+                <v-text-field :rules="[rules.required]" v-model="tempTurnPass" label="凭证 (Credential)"
+                  variant="outlined" density="compact" type="password"></v-text-field>
               </v-col>
             </v-row>
           </v-expand-transition>
@@ -226,6 +254,30 @@ onMounted(() => {
           <v-spacer></v-spacer>
           <v-btn color="grey-darken-1" variant="text" @click="showNetworkDialog = false">取消</v-btn>
           <v-btn color="primary" variant="elevated" @click="saveNetworkSettings">保存并应用</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="showMobilePathDialog" max-width="400" persistent>
+      <v-card class="rounded-lg">
+        <v-card-title class="text-h6 font-weight-bold text-primary px-5 pt-5 pb-3">
+          <v-icon icon="mdi-folder-edit-outline" class="mr-2"></v-icon>修改存储目录
+        </v-card-title>
+        <v-divider></v-divider>
+
+        <v-card-text class="px-5 pt-5 pb-2">
+          <div class="text-caption text-medium-emphasis mb-4">
+            受限于安卓系统安全策略，文件将固定保存在公共存储的 <strong>Documents</strong> 目录下。您可以自定义专属的子文件夹名称：
+          </div>
+          <v-text-field v-model="tempMobilePath" label="子文件夹名称" variant="outlined" density="compact" autofocus
+            @keyup.enter="saveMobilePath" prefix="Documents/"></v-text-field>
+        </v-card-text>
+
+        <v-card-actions class="pa-4">
+          <v-btn text="恢复默认" color="error" variant="text" @click="tempMobilePath = 'Instadrop'"></v-btn>
+          <v-spacer></v-spacer>
+          <v-btn text="取消" @click="showMobilePathDialog = false" color="grey-darken-1"></v-btn>
+          <v-btn variant="elevated" text="保存" color="primary" @click="saveMobilePath"></v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
