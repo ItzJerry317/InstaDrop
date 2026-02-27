@@ -53,6 +53,26 @@ let pendingCandidates: RTCIceCandidateInit[] = []
 let transferRequestResolver: ((value: boolean | string) => void) | null = null
 // 获取房间码防抖
 let lastAutoCreateTime = 0
+// WebRTC watchdog
+let watchdogTimer: ReturnType<typeof setTimeout> | null = null
+
+const clearWatchdog = () => {
+  if (watchdogTimer) {
+    clearTimeout(watchdogTimer)
+    watchdogTimer = null
+  }
+}
+
+const startWatchdog = (timeoutMs = 10000) => {
+  clearWatchdog() // 启动前先清理旧的
+  watchdogTimer = setTimeout(() => {
+    console.error('[Watchdog] WebRTC 连接超时 (ICE Blackhole)')
+    connectionError.value = '建立WebRTC连接超时！请检查是否开启了 VPN、代理或处于严格的局域网中，建议关闭 VPN 后重试。'
+    
+    // 主动掐断卡死的连接
+    handleDisconnect('连接超时')
+  }, timeoutMs)
+}
 
 // 监听变动并持久化
 watch(myDeviceId, (val) => localStorage.setItem('instadrop_did', val), { immediate: true })
@@ -278,6 +298,7 @@ const setupDataChannel = (channel: RTCDataChannel) => {
 
 const handleDisconnect = (reason: string) => {
   console.log('正在处理连接断开:', reason)
+  clearWatchdog()
   isP2PReady.value = false
   connectedPeerId.value = null
   connectedPeerName.value = null
@@ -559,11 +580,17 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
   isP2PReady.value = false
   peerConnection = new RTCPeerConnection(getRTCConfig())
 
+  startWatchdog(10000) //10s超时
+
   peerConnection.oniceconnectionstatechange = () => {
     const state = peerConnection?.iceConnectionState
     console.log('[物理层状态]:', state)
+    if (state === 'connected' || state === 'completed') {
+      clearWatchdog()
+    }
     if (state === 'disconnected' || state === 'failed' || state === 'closed') {
       handleDisconnect('连接断开')
+      clearWatchdog()
     }
   }
 
