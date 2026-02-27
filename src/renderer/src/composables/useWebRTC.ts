@@ -394,6 +394,8 @@ const connectToServer = (createRoomStat?: boolean) => {
 
   // 连接你的 Node 服务器
   socket = io(signalingUrl, {
+    transports: ['websocket'],
+    upgrade: false,
     reconnectionAttempts: 1,
     reconnectionDelay: 2000
   })
