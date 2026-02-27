@@ -152,6 +152,10 @@ body {
   min-height: 100% !important;
 }
 
+.v-navigation-drawer__content {
+  padding-top: calc(48px + env(safe-area-inset-top)) !important;
+}
+
 .v-app-bar {
   padding-top: env(safe-area-inset-top) !important;
   height: calc(48px + env(safe-area-inset-top)) !important; 
