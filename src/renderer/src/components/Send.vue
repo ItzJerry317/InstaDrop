@@ -416,7 +416,7 @@ onMounted(() => {
               <v-list-item>
                 <span class="text-primary font-weight-bold">
                   {{ sendStatus.status === "idle" ? "等待传输" :
-                    sendStatus.status === "sending" ? "正在传输：" + (currentFile?.name || '未知文件') :
+                    sendStatus.status === "sending" ? (sendStatus.message === '等待对方保存文件' ? "正在发送：等待对方保存文件" : "正在传输：" + (currentFile?.name || '未知文件')) :
                       sendStatus.status === "paused" ? "已暂停传输：" + (currentFile?.name || '未知文件') :
                         sendStatus.status === "done" ? "所有文件传输完成" : "传输异常：" + (sendStatus.message || "未知原因") }}
                 </span>

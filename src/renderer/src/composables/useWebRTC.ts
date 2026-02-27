@@ -51,6 +51,7 @@ let peerConnection: RTCPeerConnection | null = null
 let dataChannel: RTCDataChannel | null = null
 let pendingCandidates: RTCIceCandidateInit[] = []
 let transferRequestResolver: ((value: boolean | string) => void) | null = null
+let eofResolver: (() => void) | null = null
 // 获取房间码防抖
 let lastAutoCreateTime = 0
 // WebRTC watchdog
@@ -68,7 +69,7 @@ const startWatchdog = (timeoutMs = 10000) => {
   watchdogTimer = setTimeout(() => {
     console.error('[Watchdog] WebRTC 连接超时 (ICE Blackhole)')
     connectionError.value = '建立WebRTC连接超时！请检查双方是否开启了 VPN、代理或处于严格的局域网中。'
-    
+
     // 主动掐断卡死的连接
     handleDisconnect('连接超时')
   }, timeoutMs)
@@ -258,6 +259,14 @@ const setupDataChannel = (channel: RTCDataChannel) => {
             transferRequestResolver(msg.reason)
           }
           transferRequestResolver = null
+        }
+        return
+      }
+      if (msg.type === 'eof-ack') {
+        console.log('收到eof-ack')
+        if (eofResolver) {
+          eofResolver()
+          eofResolver = null
         }
         return
       }
@@ -754,6 +763,8 @@ const handleFileTransferDone = async () => {
     // 手机端此时已存储完毕 直接关闭即可
     console.log(`文件已完整保存到 Documents/Instadrop/${currentReceivingFile.value?.name}`)
   }
+  console.log('存储完毕，正在发送eof-ack')
+  dataChannel?.send(JSON.stringify({ type: 'eof-ack' }))
 }
 
 // 去掉 new Promise 包装，直接声明 async 函数
@@ -784,7 +795,7 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
       sendStatus.value = { status: 'error', message: canSend as string }
       throw new Error(canSend as string)
     }
-    sendStatus.value = {status: 'sending'}
+    sendStatus.value = { status: 'sending' }
     // 1. 双端获取文件元数据
     let name = ''
     let size = 0
@@ -849,7 +860,7 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
         continue
       }
 
-      // 🔥 区分环境：读取文件切片
+      // 区分环境：读取文件切片
       let chunkData: ArrayBuffer | Uint8Array
       if (isElectron() && typeof fileOrPath === 'string') {
         chunkData = await window.myElectronAPI.readFileChunk(fileOrPath, offset, chunkSize)
@@ -888,6 +899,28 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
     // 完成逻辑
     if (!isCancelled.value && sendStatus.value.status !== 'error') {
       channel.send(JSON.stringify({ type: 'eof' }))
+      sendStatus.value = { status: 'sending', message: `等待对方保存文件` }
+      try {
+        await new Promise<void>((resolve, reject) => {
+          eofResolver = resolve
+          // 给对方 15 秒的极限硬盘写入时间，防止无限卡死
+          const timeoutTimer = setTimeout(() => {
+            if (eofResolver) {
+              eofResolver = null
+              reject(new Error('等待对方保存文件超时'))
+            }
+          }, 15000)
+          
+          eofResolver = () => {
+            clearTimeout(timeoutTimer) 
+            resolve() 
+          }
+        })
+      } catch (err) {
+        console.warn(err)
+      }
+
+      // 等对方完全保存后，再彻底结束当前文件的发送
       sendStatus.value = { status: 'done', message: `文件 ${name} 发送完成` }
       transferSpeed.value = '0 B/s'
     }
