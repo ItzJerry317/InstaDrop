@@ -1,10 +1,72 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { useTheme } from 'vuetify'
 import { themePreference } from '../store/localStorageRead'
 import { isElectron } from '../utils/platform'
+import { marked } from 'marked'
 
 const theme = useTheme()
+
+// === 检查更新状态 ===
+const currentVersion = ref('v1.0.0') // 你的当前版本号
+const isCheckingUpdate = ref(false)
+const hasNewVersion = ref(false)
+const showUpdateDialog = ref(false)
+const latestVersionInfo = ref({ version: '', url: '', notes: '' })
+const parsedReleaseNotes = computed(() => {
+  if (!latestVersionInfo.value.notes) return ''
+  return marked.parse(latestVersionInfo.value.notes, { breaks: true }) as string
+})
+const handleMarkdownClick = (e: MouseEvent) => {
+  const target = e.target as HTMLElement
+  // 向上查找被点击的元素是否是 <a> 标签（使用 closest 可以兼容 <a> 内部嵌套了其他标签的情况）
+  const aTag = target.closest('a')
+  
+  if (aTag && aTag.href) {
+    e.preventDefault() // 阻止默认的当前页面跳转行为
+    // 使用你们项目里已经验证过的跨平台外部打开方式
+    window.open(aTag.href, '_blank') 
+  }
+}
+
+const checkForUpdates = async () => {
+  if (isCheckingUpdate.value) return
+  isCheckingUpdate.value = true
+
+  try {
+    const response = await fetch('https://api.github.com/repos/ItzJerry317/Instadrop/releases/latest')
+    const data = await response.json()
+    const latestVersion = data.tag_name
+
+    // 假设这是从你的服务器拉取到的最新版本信息
+    const mockApiResult = {
+      version: latestVersion, // 试试把它改成 v1.0.0 测试“已是最新版”的提示
+      url: 'https://github.com/ItzJerry317/Instadrop/releases', // 下载链接
+      notes: data.body
+    }
+
+    // 对比版本号 (这里做了简单的字符串对比，实际开发可用 semver 库)
+    if (mockApiResult.version !== currentVersion.value) {
+      hasNewVersion.value = true
+      latestVersionInfo.value = mockApiResult
+      showUpdateDialog.value = true // 弹出更新提示框
+    } else {
+      hasNewVersion.value = false
+      triggerSnackbar('当前已是最新版本，无需更新', 'success')
+    }
+  } catch (error) {
+    console.error('检查更新失败:', error)
+    triggerSnackbar('检查更新失败，请检查网络连接', 'error')
+  } finally {
+    isCheckingUpdate.value = false
+  }
+}
+
+const openDownloadUrl = () => {
+  // 跨平台通用的打开外部浏览器的方法
+  window.open(latestVersionInfo.value.url, '_blank')
+  showUpdateDialog.value = false
+}
 
 // 定义下拉框的选项
 const themeOptions = [
@@ -167,10 +229,17 @@ onMounted(() => {
 
         <v-divider v-if="isElectron()"></v-divider>
 
-        <v-list-item title="检查更新" subtitle="当前版本: v1.0.0 (已是最新版)">
-          <template v-slot:prepend><v-icon icon="mdi-update" color="grey"></v-icon></template>
+        <v-list-item title="检查更新"
+          :subtitle="hasNewVersion ? `发现新版本: ${latestVersionInfo.version}` : `当前版本: ${currentVersion}`">
+          <template v-slot:prepend>
+            <v-icon :icon="hasNewVersion ? 'mdi-alert-decagram' : 'mdi-update'"
+              :color="hasNewVersion ? 'warning' : 'grey'"></v-icon>
+          </template>
           <template v-slot:append>
-            <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-restore">检查</v-btn>
+            <v-btn variant="tonal" :color="hasNewVersion ? 'warning' : 'primary'" size="small"
+              :prepend-icon="hasNewVersion ? 'mdi-download' : 'mdi-cloud-search-outline'" :loading="isCheckingUpdate"
+              @click="hasNewVersion ? (showUpdateDialog = true) : checkForUpdates()">{{ hasNewVersion ? '查看更新' : '检查'
+              }}</v-btn>
           </template>
         </v-list-item>
 
@@ -282,6 +351,40 @@ onMounted(() => {
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="showUpdateDialog" max-width="450">
+      <v-card class="rounded-lg">
+        <v-card-title class="text-h6 font-weight-bold text-primary px-5 pt-5 pb-3">
+          <v-icon icon="mdi-rocket-launch-outline" class="mr-2"></v-icon>发现新版本！
+        </v-card-title>
+        <v-divider></v-divider>
+
+        <v-card-text class="px-5 pt-5 text-body-2">
+          <div class="d-flex align-center mb-2">
+            <span class="text-medium-emphasis mr-2">当前版本:</span>
+            <v-chip size="small" variant="outlined">{{ currentVersion }}</v-chip>
+            <v-icon icon="mdi-arrow-right" class="mx-3" size="small"></v-icon>
+            <span class="text-medium-emphasis mr-2">最新版本:</span>
+            <v-chip size="small" color="success" variant="flat">{{ latestVersionInfo.version }}</v-chip>
+          </div>
+
+          <div class="mt-6 font-weight-bold text-primary">
+            <v-icon icon="mdi-clipboard-text-outline" size="small" class="mr-1"></v-icon>更新日志：
+          </div>
+          <div 
+            class="bg-surface-variant pa-4 rounded-lg mt-2 text-body-2 markdown-body" 
+            v-html="parsedReleaseNotes"
+            @click="handleMarkdownClick"
+          ></div>
+        </v-card-text>
+
+        <v-card-actions class="pa-4 pt-2">
+          <v-spacer></v-spacer>
+          <v-btn color="grey-darken-1" variant="text" @click="showUpdateDialog = false">稍后再说</v-btn>
+          <v-btn color="primary" variant="elevated" prepend-icon="mdi-open-in-new" @click="openDownloadUrl">前往下载</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="showSnackbar" :color="snackbarColor" timeout="3000" location="top">
       {{ snackbarMessage }}
       <template v-slot:actions>
@@ -293,3 +396,46 @@ onMounted(() => {
 
   </v-container>
 </template>
+<style scoped>
+/* 还原 Vuetify 抹除的 Markdown 默认排版样式 */
+.markdown-body :deep(p) {
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4) {
+  margin-top: 12px;
+  margin-bottom: 8px;
+  font-weight: bold;
+}
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin-left: 24px;
+  margin-bottom: 12px;
+}
+.markdown-body :deep(li) {
+  margin-bottom: 4px;
+}
+.markdown-body :deep(blockquote) {
+  border-left: 4px solid #aaa;
+  padding-left: 12px;
+  color: #888;
+  margin: 12px 0;
+  background-color: rgba(150, 150, 150, 0.1);
+  padding: 8px 12px;
+  border-radius: 0 4px 4px 0;
+}
+.markdown-body :deep(a) {
+  color: #2196F3;
+  text-decoration: none;
+}
+.markdown-body :deep(a:hover) {
+  text-decoration: underline;
+}
+.markdown-body :deep(strong) {
+  font-weight: 900;
+  color: inherit;
+}
+</style>
