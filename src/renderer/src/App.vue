@@ -86,8 +86,10 @@ onUnmounted(() => {
       <v-btn icon="mdi-menu" style="-webkit-app-region: no-drag;" @click="drawer = !drawer"></v-btn>
       <v-app-bar-title>Instadrop</v-app-bar-title>
       <v-spacer></v-spacer>
-      <v-btn icon="mdi-window-minimize" style="-webkit-app-region: no-drag;" @click="minimizeApp" v-if="isElectron()"></v-btn>
-      <v-btn :icon="windowStatus" style="-webkit-app-region: no-drag;" @click="toggleWindowStatus" v-if="isElectron()"></v-btn>
+      <v-btn icon="mdi-window-minimize" style="-webkit-app-region: no-drag;" @click="minimizeApp"
+        v-if="isElectron()"></v-btn>
+      <v-btn :icon="windowStatus" style="-webkit-app-region: no-drag;" @click="toggleWindowStatus"
+        v-if="isElectron()"></v-btn>
       <v-btn icon="mdi-close" style="-webkit-app-region: no-drag;" @click="closeApp" v-if="isElectron()"></v-btn>
     </v-app-bar>
 
@@ -135,6 +137,9 @@ body {
   margin: 0;
   padding: 0;
   overflow-y: hidden !important;
+}
+
+body {
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
 }
