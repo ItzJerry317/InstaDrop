@@ -153,7 +153,7 @@ body {
 }
 
 .v-navigation-drawer__content {
-  padding-top: calc(48px + env(safe-area-inset-top)) !important;
+  padding-top: calc(env(safe-area-inset-top)) !important;
 }
 
 .v-app-bar {
