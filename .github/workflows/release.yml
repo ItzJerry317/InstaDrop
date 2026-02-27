@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '23' # 建议使用 LTS 版本
+          node-version: '24' # 建议使用 LTS 版本
 
       - name: Install Dependencies
         run: npm install
@@ -47,7 +47,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '23'
+          node-version: '24'
 
       - name: Setup Java (Android Require)
         uses: actions/setup-java@v4
@@ -87,7 +87,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '23'
+          node-version: '24'
 
       - name: Install Dependencies
         run: npm install
