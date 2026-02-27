@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useWebRTC } from '../composables/useWebRTC'
+import { isElectron } from '../utils/platform'
 
 // 引入核心逻辑
 const {
@@ -79,21 +80,8 @@ const handleDisconnect = () => {
   // 先断开本地 P2P
   disconnectPeer()
 
+  tempRoomCode.value = ''
   receiveStatus.value = 'idle'
-
-  if (roomCode.value === '加密直连') {
-    // 场景 A：如果是直连，我们希望“退出直连模式，回到公开模式”
-    // 调用 refreshShareCode 是最简单的“重置”方式，它会销毁直连房间并给你一个新的 6 位码
-    refreshShareCode()
-
-    // 如果你想保留原来的 6 位码不换，目前 Server 端不支持。
-    // 因为 Server 端只有 create-room (建新房) 和 disconnect (全删)。
-    // 所以目前 refreshShareCode() 是退出直连并恢复服务的唯一路径。
-  } else {
-    // 场景 B：如果是 6 位码连接
-    // 为了安全，踢掉陌生人后最好换个码
-    refreshShareCode()
-  }
 }
 
 // === 辅助工具 ===
@@ -109,6 +97,8 @@ const copyToClipboard = async (text: string) => {
 
 // 打开下载文件夹 (需要 Electron 主进程支持，我们稍后实现)
 const openDownloadsFolder = () => {
+  if (!isElectron()) return //移动端不可用
+
   // 从 LocalStorage 读取用户设置的路径
   const savedPath = localStorage.getItem('instadrop_save_path')
 
@@ -194,13 +184,13 @@ const formatSize = (bytes: number) => {
           </v-card-text>
         </v-card>
 
-        <v-card class="text-center py-10 d-flex flex-column align-center justify-center" variant="outlined"
-          style="border: 2px dashed rgba(150, 150, 150, 0.3); min-height: 400px;">
+        <v-card class="text-center py-10 d-flex flex-column align-center justify-center overflow-hidden" variant="outlined"
+          style="border: 2px dashed rgba(150, 150, 150, 0.3); min-height: 400px; word-break: break-word; max-width: 100%;">
 
-          <div v-if="receiveStatus === 'idle' && !isP2PReady" class="d-flex flex-column align-center">
+          <div v-if="receiveStatus === 'idle' && !isP2PReady" class="d-flex flex-column align-center w-100" style="max-width: 100%; min-width: 0;">
             <div class="text-h6 text-medium-emphasis mb-4" v-if="isConnected">请输入取件码</div>
 
-            <div v-if="isConnected" class="d-flex align-center">
+            <div v-if="isConnected" class="d-flex align-center justify-center w-100" style="max-width: 100%; overflow: hidden; padding: 0 10px;">
               <v-otp-input v-model="tempRoomCode" length="6" :disabled="!isConnected || isJoining"></v-otp-input>
             </div>
 
@@ -211,24 +201,24 @@ const formatSize = (bytes: number) => {
               请先连接到信令服务器
             </div>
 
-            <div class="mt-8 text-body-2 text-medium-emphasis px-10" v-if="isConnected">
+            <div class="mt-8 text-body-2 text-medium-emphasis px-4" v-if="isConnected">
               请在发送端 (手机/电脑) 输入此 6 位数字，<br>或者在“信任设备”列表中直接点击连接。
             </div>
           </div>
 
-          <div v-else-if="receiveStatus === 'idle' && isP2PReady" class="d-flex flex-column align-center">
+          <div v-else-if="receiveStatus === 'idle' && isP2PReady" class="d-flex flex-column align-center w-100" style="max-width: 100%; min-width: 0;">
             <v-icon icon="mdi-account-check-outline" size="80" color="purple-accent-3" class="mb-4"></v-icon>
             <h3 class="text-h5 font-weight-bold mb-2">已与 {{ connectedPeerName }} 建立连接</h3>
             <p class="text-medium-emphasis">正在等待对方发送文件...</p>
           </div>
 
-          <div v-else class="w-100 px-10">
+          <div v-else class="w-100 px-4 px-md-10 overflow-hidden" style="max-width: 100%; min-width: 0;">
             <v-icon :icon="receiveStatus === 'done' ? 'mdi-check-circle-outline' : 'mdi-download-network-outline'"
               size="60"
               :color="receiveStatus === 'done' ? 'success' : (receiveStatus === 'error' ? 'error' : 'primary')"
               class="mb-4"></v-icon>
 
-            <h3 class="text-h6 font-weight-bold text-truncate mb-1">
+            <h3 class="text-h6 font-weight-bold mb-1 d-block" style="max-width: 100%; word-break: break-all; overflow-wrap: break-word;">
               {{ currentReceivingFile?.name || '未知文件' }}
             </h3>
             <div class="text-caption text-medium-emphasis mb-4">
@@ -240,7 +230,7 @@ const formatSize = (bytes: number) => {
               :color="receiveStatus === 'done' ? 'success' : receiveStatus === 'error' ? 'error' : 'primary'">
             </v-progress-linear>
 
-            <div class="d-flex justify-space-between mt-2 text-caption font-weight-bold">
+            <div class="d-flex justify-space-between mt-2 text-caption font-weight-bold w-100">
               <span :class="receiveStatus === 'error' ? 'text-error' : 'text-primary'">
                 {{ receiveStatus === 'error' ? '已停止' : receiveSpeed }}</span>
               <span>{{ receiveProgress.toFixed(2) }}%</span>
@@ -261,14 +251,29 @@ const formatSize = (bytes: number) => {
               返回
             </v-btn>
 
-            <v-btn v-if="receiveStatus === 'done'" class="mt-6" variant="tonal" color="primary"
-              prepend-icon="mdi-folder-open" @click="openDownloadsFolder">
-              打开下载文件夹
-            </v-btn>
+            <div class="d-flex align-center justify-center">
+              <v-btn v-if="receiveStatus === 'done' && isElectron()" class="mt-6" variant="tonal" color="primary"
+                prepend-icon="mdi-folder-open" @click="openDownloadsFolder">
+                打开下载文件夹
+              </v-btn>
+              <v-spacer v-if="receiveStatus === 'done' && isElectron()"></v-spacer>
+              <v-btn class="mt-6" v-if="receiveStatus === 'done'" variant="tonal" color="primary"
+                prepend-icon="mdi-arrow-left"
+                @click="receiveStatus = 'idle'; receiveError = null; currentReceivingFile = null;">
+                返回
+              </v-btn>
+            </div>
+
+            <div v-if="receiveStatus === 'done' && !isElectron()"
+              class="mt-6 text-success font-weight-bold text-center">
+              <v-icon icon="mdi-check-circle" class="mr-1"></v-icon> 已保存至手机 Documents/Instadrop
+            </div>
+
+
             <div class="mt-4"></div>
             <v-divider></v-divider>
             <div class="mt-4"></div>
-            <div class="text-caption text-weight-bold">
+            <div class="text-caption text-weight-bold" style="white-space: normal; word-wrap: break-word;">
               <span>你可以在发送端设备上继续传输文件。</span><br>
               <span>在断开与 {{ connectedPeerName }} 的连接之前，你无法接收来自其他设备的文件。</span><br>
               <span>要断开连接，请点击“断开连接”按钮。</span>
@@ -276,7 +281,7 @@ const formatSize = (bytes: number) => {
           </div>
         </v-card>
 
-        <div class="d-flex justify-center mt-4">
+        <div class="d-flex justify-center mt-4" v-if="isElectron()">
           <v-btn variant="text" size="small" color="grey" prepend-icon="mdi-folder-marker-outline"
             @click="openDownloadsFolder">
             点击打开存储位置
@@ -351,8 +356,8 @@ const formatSize = (bytes: number) => {
                     连接
                   </v-btn>
                   <v-btn size="small" color="error" variant="tonal" class="mr-2"
-                    :disabled="!isP2PReady || device.id !== connectedPeerId"
-                    @click="handleDisconnect()" v-if="connectedPeerId === device.id">
+                    :disabled="!isP2PReady || device.id !== connectedPeerId" @click="handleDisconnect()"
+                    v-if="connectedPeerId === device.id">
                     断开
                   </v-btn>
                   <v-btn icon="mdi-pencil-outline" variant="text" size="small" color="primary" class="mr-1"

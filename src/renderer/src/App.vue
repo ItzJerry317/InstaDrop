@@ -7,6 +7,7 @@ import Receive from './components/Receive.vue'
 import { useTheme } from 'vuetify'
 import { themePreference } from './store/localStorageRead'
 import { useWebRTC } from './composables/useWebRTC'
+import { isElectron } from './utils/platform'
 
 const currentTab = ref('send')
 const drawer = ref(false)
@@ -61,11 +62,13 @@ watch(connectionError, (err) => {
 
 onMounted(() => {
   applyTheme(themePreference.value)
-  checkWindowStatus()
-  window.myElectronAPI.onWindowStateChanged((newState) => {
-    console.log(`窗口状态变化: ${newState}`)
-    windowStatus.value = newState === 'maximized' ? 'mdi-window-restore' : 'mdi-window-maximize'
-  })
+  if (isElectron()) {
+    checkWindowStatus()
+    window.myElectronAPI.onWindowStateChanged((newState) => {
+      console.log(`窗口状态变化: ${newState}`)
+      windowStatus.value = newState === 'maximized' ? 'mdi-window-restore' : 'mdi-window-maximize'
+    })
+  }
   if (localStorage.getItem('instadrop_disclaimer_accepted') === 'true') {
     connectToServer(true)
   }
@@ -83,9 +86,9 @@ onUnmounted(() => {
       <v-btn icon="mdi-menu" style="-webkit-app-region: no-drag;" @click="drawer = !drawer"></v-btn>
       <v-app-bar-title>Instadrop</v-app-bar-title>
       <v-spacer></v-spacer>
-      <v-btn icon="mdi-window-minimize" style="-webkit-app-region: no-drag;" @click="minimizeApp"></v-btn>
-      <v-btn :icon="windowStatus" style="-webkit-app-region: no-drag;" @click="toggleWindowStatus"></v-btn>
-      <v-btn icon="mdi-close" style="-webkit-app-region: no-drag;" @click="closeApp"></v-btn>
+      <v-btn icon="mdi-window-minimize" style="-webkit-app-region: no-drag;" @click="minimizeApp" v-if="isElectron()"></v-btn>
+      <v-btn :icon="windowStatus" style="-webkit-app-region: no-drag;" @click="toggleWindowStatus" v-if="isElectron()"></v-btn>
+      <v-btn icon="mdi-close" style="-webkit-app-region: no-drag;" @click="closeApp" v-if="isElectron()"></v-btn>
     </v-app-bar>
 
     <v-navigation-drawer v-model="drawer" temporary>

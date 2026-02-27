@@ -17,6 +17,8 @@ const connectedPeerName = ref<string | null>(null)
 const transferSpeed = ref('0 B/s')
 const currentRoomId = ref<string | null>(null)
 const connectionError = ref<string | null>(null)
+const isHostRole = ref(false)
+const isDefaultHost = ref(false)
 
 // === 接收端状态定义 ===
 const receiveStatus = ref<'idle' | 'receiving' | 'done' | 'error'>('idle')
@@ -39,11 +41,14 @@ const trustedDevices = ref<TrustedDevice[]>(JSON.parse(localStorage.getItem('ins
 let socket: Socket | null = null
 let peerConnection: RTCPeerConnection | null = null
 let dataChannel: RTCDataChannel | null = null
+let pendingCandidates: RTCIceCandidateInit[] = []
+// 获取房间码防抖
+let lastAutoCreateTime = 0
 
 // 监听变动并持久化
-watch(myDeviceId, (val) => localStorage.setItem('instadrop_did', val))
-watch(myDeviceName, (val) => localStorage.setItem('instadrop_dname', val))
-watch(trustedDevices, (val) => localStorage.setItem('instadrop_trusted', JSON.stringify(val)), { deep: true })
+watch(myDeviceId, (val) => localStorage.setItem('instadrop_did', val), { immediate: true })
+watch(myDeviceName, (val) => localStorage.setItem('instadrop_dname', val), { immediate: true })
+watch(trustedDevices, (val) => localStorage.setItem('instadrop_trusted', JSON.stringify(val)), { deep: true, immediate: true })
 
 // 生成 UUID 的简易函数
 function generateUUID() {
@@ -171,7 +176,7 @@ const setupDataChannel = (channel: RTCDataChannel) => {
   // 通用onChannelOpen函数
   const onChannelOpen = () => {
     console.log('P2P 通道打通！')
-    isP2PReady.value = true
+    // isP2PReady.value = true
 
     // 发送身份握手
     channel.send(JSON.stringify({
@@ -215,6 +220,8 @@ const setupDataChannel = (channel: RTCDataChannel) => {
         } else {
           connectedPeerName.value = msg.name
         }
+
+        isP2PReady.value = true
       }
       else if (msg.type === 'meta') {
         // 收到文件头 准备接收
@@ -240,6 +247,21 @@ const handleDisconnect = (reason: string) => {
   isP2PReady.value = false
   connectedPeerId.value = null
   connectedPeerName.value = null
+  currentRoomId.value = null
+  pendingCandidates = []
+  if (dataChannel) {
+    dataChannel.onclose = null // 移除监听，防止触发死循环
+    dataChannel.onerror = null
+    dataChannel.close()
+    dataChannel = null
+  }
+  if (peerConnection) {
+    peerConnection.oniceconnectionstatechange = null
+    peerConnection.close()
+    peerConnection = null
+  }
+
+  roomCode.value = ''
   if (sendStatus.value.status === 'sending' || sendStatus.value.status === 'paused') {
     sendStatus.value = { status: 'error', message: reason }
     transferSpeed.value = '0 B/s'
@@ -252,6 +274,25 @@ const handleDisconnect = (reason: string) => {
     // 强制关闭文件流，防止文件被锁定
     window.myElectronAPI?.finishReceiveFile().catch(err => console.error(err))
   }
+
+  if (isDefaultHost.value) {
+    const now = Date.now()
+
+    // 🔥 终极修复：节流 (Throttle)。如果距离上次自动建房还不到 2 秒，说明是滞后的重复警告，直接忽略！
+    if (now - lastAutoCreateTime > 2000) {
+      lastAutoCreateTime = now
+      roomCode.value = '获取中...' // 让发送端的 UI 立刻给出反馈，不要闪烁成空白
+
+      setTimeout(() => {
+        if (socket && socket.connected && !isP2PReady.value) {
+          console.log('[handleDisconnect] 重新创建房间')
+          createRoom()
+        }
+      }, 50)
+    } else {
+      console.log('[handleDisconnect] 忽略极短时间内的重复断开警告')
+    }
+  }
 }
 
 // 主动断开当前的 P2P 对等连接，并重新申请新房间
@@ -260,35 +301,26 @@ const disconnectPeer = () => {
     isCancelled.value = true
   }
 
-  // 关闭 WebRTC 连接和数据通道
-  if (dataChannel) {
-    dataChannel.close()
-    dataChannel = null
-  }
-  if (peerConnection) {
-    peerConnection.close()
-    peerConnection = null
-  }
-
   handleDisconnect('已主动断开连接')
 }
 
 // 刷新房间方法
 const refreshShareCode = () => {
   console.log('正在刷新取件码...')
+  roomCode.value = '获取中'
   if (isP2PReady.value) {
     console.log('正在断开当前连接以刷新取件码...')
     disconnectPeer() // 先断开当前连接
-  }
-  roomCode.value = '获取中'
-
-  if (socket && socket.connected) {
-    socket.emit('create-room')
-    // 服务端逻辑通常是：同一个 Socket ID 再发 create-room，会销毁旧房间并创建新房间
   } else {
-    // 如果没连上，尝试重连并创建房间
-    connectToServer(true)
+    if (socket && socket.connected) {
+      createRoom()
+      // 服务端逻辑通常是：同一个 Socket ID 再发 create-room，会销毁旧房间并创建新房间
+    } else {
+      // 如果没连上，尝试重连并创建房间
+      connectToServer(true)
+    }
   }
+
 }
 
 const disconnectServer = () => {
@@ -297,6 +329,7 @@ const disconnectServer = () => {
   isP2PReady.value = false
   connectedPeerId.value = null
   roomCode.value = ''
+  currentRoomId.value = null
   transferSpeed.value = '0 B/s'
 }
 
@@ -389,6 +422,7 @@ const connectToServer = (createRoomStat?: boolean) => {
   // === 新增：处理无感直连请求 ===
   socket.on('direct-connection-ready', ({ roomId, role, peerDeviceId, peerDeviceName }) => {
     console.log(`[Direct] 收到直连请求，房间: ${roomId}, 角色: ${role}`)
+    isHostRole.value = (role === 'host')
     roomCode.value = '加密直连' // UI 显示
     currentRoomId.value = roomId // 记录当前真实房间 ID
     startWebRTC(role === 'host', roomId) // 启动 WebRTC
@@ -422,20 +456,36 @@ const connectToServer = (createRoomStat?: boolean) => {
     if (payload.type === 'offer') {
       // 如果接收方收到 Offer 时发现还没有对等连接，则立刻初始化
       if (!peerConnection) {
-        await startWebRTC(false, roomCode.value)
+        await startWebRTC(false, currentRoomId.value!)
       }
       await peerConnection!.setRemoteDescription(new RTCSessionDescription(payload.offer))
       const answer = await peerConnection!.createAnswer()
       await peerConnection!.setLocalDescription(answer)
-      socket?.emit('signal', { roomCode: roomCode.value, payload: { type: 'answer', answer: answer } })
+      socket?.emit('signal', { roomCode: currentRoomId.value, payload: { type: 'answer', answer: answer } })
+      for (const candidate of pendingCandidates) {
+        await peerConnection!.addIceCandidate(new RTCIceCandidate(candidate))
+      }
+      pendingCandidates = []
     }
     else if (payload.type === 'answer') {
       if (!peerConnection) return // 如果是 answer，必须有 peerConnection
       await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.answer))
+      // Answer 处理完毕后，消费积压的 Candidate
+      for (const candidate of pendingCandidates) {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+      }
+      pendingCandidates = []
     }
     else if (payload.type === 'candidate') {
       if (!peerConnection) return // 如果是 candidate，必须有 peerConnection
-      await peerConnection.addIceCandidate(new RTCIceCandidate(payload.candidate))
+      if (peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
+        // 如果准备好了，直接添加
+        await peerConnection.addIceCandidate(new RTCIceCandidate(payload.candidate))
+      } else {
+        // 如果没准备好（说明 Candidate 比 Offer/Answer 先到了），就先塞进暂存队列
+        console.log('Candidate 提前到达，暂存进队列...')
+        pendingCandidates.push(payload.candidate)
+      }
     }
   })
 
@@ -447,6 +497,8 @@ const connectToServer = (createRoomStat?: boolean) => {
 // 主动创建房间 (Send.vue 调用)
 const createRoom = () => {
   if (socket && socket.connected) {
+    isHostRole.value = true
+    isDefaultHost.value = true
     socket.emit('create-room')
   }
 }
@@ -455,7 +507,10 @@ const createRoom = () => {
 const joinRoom = (code: string) => {
   if (!code || code.length !== 6) return alert('请输入 6 位取件码')
   if (socket && socket.connected) {
+    isHostRole.value = false
+    isDefaultHost.value = false
     roomCode.value = code
+    currentRoomId.value = code
     socket.emit('join-room', code)
   } else {
     alert('未连接服务器')
@@ -505,7 +560,7 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
 // === 接收逻辑 ===
 let lastReceiveTime = Date.now()
 let lastReceiveOffset = 0
-let webReceiveBuffer: BlobPart[] = [] // 移动端专用内存缓冲区
+let writeQueuePromise = Promise.resolve()
 
 const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
   let binary = ''
@@ -535,6 +590,10 @@ const handleFileMeta = async (meta: { name: string, size: number }) => {
   // 重置速度计算器
   lastReceiveTime = Date.now()
   lastReceiveOffset = 0
+
+  // 重置接收队列
+  writeQueuePromise = Promise.resolve()
+
   if (isElectron()) {
     // 电脑端
 
@@ -561,28 +620,31 @@ const handleFileMeta = async (meta: { name: string, size: number }) => {
   }
 }
 
-const handleFileChunk = async (chunk: ArrayBuffer) => {
+const handleFileChunk = (chunk: ArrayBuffer) => {
   if (!currentReceivingFile.value) return
 
   // 更新进度
+  const fileName = currentReceivingFile.value.name
   const chunkSize = chunk.byteLength
   internalReceivedSize += chunkSize
 
-  if (isElectron()) {
-    // 调用 Electron 主进程：追加写入数据
-    await window.myElectronAPI?.receiveFileChunk(chunk)
-  } else {
-    try {
-      const base64Chunk = arrayBufferToBase64(chunk)
-      await Filesystem.appendFile({
-        path: `Instadrop/${currentReceivingFile.value.name}`,
-        data: base64Chunk,
-        directory: Directory.Documents
-      })
-    } catch (e) {
-      console.error('手机端追加写入切片失败:', e)
+  writeQueuePromise = writeQueuePromise.then(async () => {
+    if (isElectron()) {
+      // 调用 Electron 主进程：追加写入数据
+      await window.myElectronAPI?.receiveFileChunk(chunk)
+    } else {
+      try {
+        const base64Chunk = arrayBufferToBase64(chunk)
+        await Filesystem.appendFile({
+          path: `Instadrop/${fileName}`,
+          data: base64Chunk,
+          directory: Directory.Documents
+        })
+      } catch (e) {
+        console.error('手机端追加写入切片失败:', e)
+      }
     }
-  }
+  }).catch(e => console.error('写入队列异常:', e))
 
   // 计算速度 (每 500ms 更新一次 UI)
   const now = Date.now()
@@ -603,6 +665,7 @@ const handleFileChunk = async (chunk: ArrayBuffer) => {
 }
 
 const handleFileTransferDone = async () => {
+  await writeQueuePromise
   receiveStatus.value = 'done'
   receiveSpeed.value = '0 B/s'
   receiveProgress.value = 100

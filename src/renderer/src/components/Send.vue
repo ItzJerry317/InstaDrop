@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useWebRTC } from '../composables/useWebRTC'
-
+import { isElectron } from '../utils/platform'
+import { App } from '@capacitor/app'
 
 const {
   roomCode,
@@ -38,6 +39,7 @@ interface DroppedFile {
   path: string
   size: number
   formattedSize: string
+  rawFile?: File // 移动端用，原生文件对象
 }
 
 const isDragging = ref(false)
@@ -61,7 +63,12 @@ const acceptDisclaimer = () => {
 
 const rejectDisclaimer = () => {
   // 退出应用
-  window.myElectronAPI.closeWindow()
+  if (isElectron()) {
+    window.myElectronAPI.closeWindow()
+  } else {
+    App.exitApp()
+    triggerSnackbar('已拒绝免责声明，请自行退出应用。', 'error')
+  }
 }
 
 // === UUID可见性控制 ===
@@ -193,14 +200,27 @@ const triggerFileInput = () => {
 const processFileList = (files: FileList) => {
   for (let i = 0; i < files.length; i++) {
     const file = files[i]
-    const actualPath = window.myElectronAPI.getFilePath(file)
-    if (!droppedFiles.value.some(f => f.path === actualPath)) {
-      droppedFiles.value.push({
-        name: file.name,
-        path: actualPath,
-        size: file.size,
-        formattedSize: formatFileSize(file.size)
-      })
+
+    if (isElectron()) {
+      const actualPath = window.myElectronAPI.getFilePath(file)
+      if (!droppedFiles.value.some(f => f.path === actualPath)) {
+        droppedFiles.value.push({
+          name: file.name,
+          path: actualPath,
+          size: file.size,
+          formattedSize: formatFileSize(file.size)
+        })
+      }
+    } else {
+      if (!droppedFiles.value.some(f => f.name === file.name && f.size === file.size)) {
+        droppedFiles.value.push({
+          name: file.name,
+          path: file.name, // 手机端给个虚拟路径显示用
+          size: file.size,
+          formattedSize: formatFileSize(file.size),
+          rawFile: file
+        })
+      }
     }
   }
 }
@@ -243,7 +263,11 @@ const processFiles = async () => {
 
   try {
     for (const file of droppedFiles.value) {
-      await sendFile(file.path)
+      if (isElectron()) {
+        await sendFile(file.path)
+      } else if (file.rawFile) {
+        await sendFile(file.rawFile)
+      }
     }
     if (sendStatus.value.status !== 'idle') {
       sendStatus.value = { status: 'done', message: '全部文件传输完成' }
@@ -288,22 +312,7 @@ const disableConnectBtnTemporarily = () => {
 }
 
 const handleDisconnect = () => {
-  // 先断开本地 P2P
   disconnectPeer()
-
-  if (roomCode.value === '加密直连') {
-    // 场景 A：如果是直连，我们希望“退出直连模式，回到公开模式”
-    // 调用 refreshShareCode 是最简单的“重置”方式，它会销毁直连房间并给你一个新的 6 位码
-    refreshShareCode() 
-    
-    // 如果你想保留原来的 6 位码不换，目前 Server 端不支持。
-    // 因为 Server 端只有 create-room (建新房) 和 disconnect (全删)。
-    // 所以目前 refreshShareCode() 是退出直连并恢复服务的唯一路径。
-  } else {
-    // 场景 B：如果是 6 位码连接
-    // 为了安全，踢掉陌生人后最好换个码
-    refreshShareCode()
-  }
 }
 
 onMounted(() => {
@@ -336,7 +345,7 @@ onMounted(() => {
               <span v-if="!isConnected" class="text-medium-emphasis">离线状态</span>
               <span v-else-if="!isP2PReady" class="font-weight-bold text-success">
                 <template v-if="roomCode === '加密直连'">
-                  正在建立无感直连安全通道...
+                  正在建立无感直连安全通道...roomCode {{ roomCode }}
                 </template>
                 <template v-else>
                   等待接入... 临时取件码: <span class="text-h6 mx-2">{{ roomCode }}</span>
@@ -624,10 +633,10 @@ onMounted(() => {
         <v-divider></v-divider>
 
         <v-card-text class="pt-5 px-5 text-body-1" style="line-height: 1.6; color: white;">
-          <p class="mb-4">
+          <p class="mb-4 text-medium-emphasis">
             <strong>Instadrop</strong> 是一款端到端加密的 P2P 传输工具，不包含任何云端文件存储功能，开发者无法查看、获取或审查您传输的任何内容。
           </p>
-          <p class="mb-2">
+          <p class="mb-2 text-medium-emphasis">
             您承诺在使用本软件时：
           </p>
           <ul class="pl-5 mb-4 text-medium-emphasis">
