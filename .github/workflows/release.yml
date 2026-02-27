@@ -102,13 +102,6 @@ jobs:
       - name: Sync Capacitor iOS
         run: npx cap sync ios
 
-      - name: Install CocoaPods dependencies
-        working-directory: ./ios/App
-        run: |
-          cd ios/App
-          pod install --repo-update
-
-      # 🔥 核心：强制禁用 Xcode 的签名机制，直接编译真机版 (iphoneos) 纯净二进制程序
       - name: Build iOS App (Unsigned)
         working-directory: ./ios/App
         run: |
@@ -122,7 +115,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -derivedDataPath build
 
-      # 🔥 手动打包 IPA：建一个 Payload 文件夹，把 App 塞进去，压缩，改名！
       - name: Package into IPA
         working-directory: ./ios/App
         run: |
