@@ -31,19 +31,14 @@ const {
   disconnectPeer,
   updateDeviceRemark,
   refreshShareCode,
-  createRoom
+  createRoom,
+  receiveStatus,
+  droppedFiles
 } = useWebRTC()
 
-interface DroppedFile {
-  name: string
-  path: string
-  size: number
-  formattedSize: string
-  rawFile?: File // 移动端用，原生文件对象
-}
+
 
 const isDragging = ref(false)
-const droppedFiles = ref<DroppedFile[]>([])
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const rules = {
@@ -366,6 +361,9 @@ onMounted(() => {
             </v-btn>
           </v-card-text>
         </v-card>
+        <v-alert class="mb-4" v-if="receiveStatus !== 'idle'"
+        text="当前有正在进行的接收进程，请前往 接收 页面查看" type="warning"
+        ></v-alert>
 
         <input type="file" ref="fileInputRef" multiple style="display: none;" @change="handleFileSelect" />
 

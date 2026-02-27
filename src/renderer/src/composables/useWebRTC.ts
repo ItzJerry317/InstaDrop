@@ -19,6 +19,14 @@ const currentRoomId = ref<string | null>(null)
 const connectionError = ref<string | null>(null)
 const isHostRole = ref(false)
 const isDefaultHost = ref(false)
+export interface DroppedFile {
+  name: string
+  path: string
+  size: number
+  formattedSize: string
+  rawFile?: File // 移动端用，原生文件对象
+}
+const droppedFiles = ref<DroppedFile[]>([])
 
 // === 接收端状态定义 ===
 const receiveStatus = ref<'idle' | 'receiving' | 'done' | 'error'>('idle')
@@ -157,6 +165,7 @@ const resetTransfer = () => {
   sendStatus.value = { status: 'idle' }
   isCancelled.value = false
   transferSpeed.value = '0 B/s'
+  droppedFiles.value = []
 }
 
 const pauseTransfer = () => {
@@ -842,7 +851,7 @@ export function useWebRTC() {
     connectToServer, disconnectServer,
     regenerateDeviceId, updateDeviceName,
     addTrustedDevice, removeTrustedDevice, connectToDevice, disconnectPeer, updateDeviceRemark,
-    createRoom, joinRoom, refreshShareCode,
+    createRoom, joinRoom, refreshShareCode, droppedFiles,
     // 传输控制
     sendFile, resetTransfer, pauseTransfer, resumeTransfer, cancelTransfer, transferSpeed,
     // 连接错误信息

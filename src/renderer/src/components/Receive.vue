@@ -25,7 +25,8 @@ const {
   receiveProgress,
   receiveSpeed,
   receiveStatus,
-  receiveError
+  receiveError,
+  sendStatus
 } = useWebRTC()
 
 // === 接收状态 (TODO: 下一步我们需要在 useWebRTC.ts 中真正实现这些状态) ===
@@ -181,6 +182,10 @@ const formatSize = (bytes: number) => {
             </v-btn>
           </v-card-text>
         </v-card>
+        
+        <v-alert class="mb-4" v-if="sendStatus.status !== 'idle'"
+        text="当前有正在进行的发送进程，请前往 发送 页面查看" type="warning"
+        ></v-alert>
 
         <v-card class="text-center py-10 d-flex flex-column align-center justify-center overflow-hidden" variant="outlined"
           style="border: 2px dashed rgba(150, 150, 150, 0.3); min-height: 400px; word-break: break-word; max-width: 100%;">
