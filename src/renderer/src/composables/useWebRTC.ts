@@ -36,6 +36,7 @@ const receiveProgress = ref(0)
 const receiveSpeed = ref('0 B/s')
 let internalReceivedSize = 0
 let lastUIUpdateTime = 0
+const receivedFiles = ref<{ name: string, size: number, timestamp: number }[]>([])
 
 // === 身份与信任管理 ===
 // 从 localStorage 读取或生成新身份
@@ -309,6 +310,7 @@ const handleDisconnect = (reason: string) => {
   console.log('正在处理连接断开:', reason)
   clearWatchdog()
   isP2PReady.value = false
+  receivedFiles.value = []
   connectedPeerId.value = null
   connectedPeerName.value = null
   currentRoomId.value = null
@@ -754,6 +756,11 @@ const handleFileTransferDone = async () => {
   receiveProgress.value = 100
   if (currentReceivingFile.value) {
     currentReceivingFile.value.receivedSize = currentReceivingFile.value.size
+    receivedFiles.value.push({
+      name: currentReceivingFile.value.name,
+      size: currentReceivingFile.value.size,
+      timestamp: Date.now()
+    })
   }
 
   if (isElectron()) {
@@ -949,7 +956,7 @@ export function useWebRTC() {
     // 传输状态
     fileProgress, currentFile, sendStatus,
     // 接收状态
-    receiveStatus, currentReceivingFile, receiveProgress, receiveSpeed,
+    receiveStatus, currentReceivingFile, receiveProgress, receiveSpeed, receivedFiles,
     // 身份数据
     myDeviceId, myDeviceName, trustedDevices, connectedPeerId, connectedPeerName,
     // 方法

@@ -26,7 +26,8 @@ const {
   receiveSpeed,
   receiveStatus,
   receiveError,
-  sendStatus
+  sendStatus,
+  receivedFiles
 } = useWebRTC()
 
 const defaultPathText = 'Documents/Instadrop'
@@ -185,18 +186,20 @@ const formatSize = (bytes: number) => {
             </v-btn>
           </v-card-text>
         </v-card>
-        
-        <v-alert class="mb-4" v-if="sendStatus.status !== 'idle'"
-        text="当前有正在进行的发送进程，请前往 发送 页面查看" type="warning"
-        ></v-alert>
 
-        <v-card class="text-center py-10 d-flex flex-column align-center justify-center overflow-hidden" variant="outlined"
+        <v-alert class="mb-4" v-if="sendStatus.status !== 'idle'" text="当前有正在进行的发送进程，请前往 发送 页面查看"
+          type="warning"></v-alert>
+
+        <v-card class="text-center py-10 d-flex flex-column align-center justify-center overflow-hidden"
+          variant="outlined"
           style="border: 2px dashed rgba(150, 150, 150, 0.3); min-height: 400px; word-break: break-word; max-width: 100%;">
 
-          <div v-if="receiveStatus === 'idle' && !isP2PReady" class="d-flex flex-column align-center w-100" style="max-width: 100%; min-width: 0;">
+          <div v-if="receiveStatus === 'idle' && !isP2PReady" class="d-flex flex-column align-center w-100"
+            style="max-width: 100%; min-width: 0;">
             <div class="text-h6 text-medium-emphasis mb-4" v-if="isConnected">请输入取件码</div>
 
-            <div v-if="isConnected" class="d-flex align-center justify-center w-100" style="max-width: 100%; overflow: hidden; padding: 0 10px;">
+            <div v-if="isConnected" class="d-flex align-center justify-center w-100"
+              style="max-width: 100%; overflow: hidden; padding: 0 10px;">
               <v-otp-input v-model="tempRoomCode" length="6" :disabled="!isConnected || isJoining"></v-otp-input>
             </div>
 
@@ -212,7 +215,8 @@ const formatSize = (bytes: number) => {
             </div>
           </div>
 
-          <div v-else-if="receiveStatus === 'idle' && isP2PReady" class="d-flex flex-column align-center w-100" style="max-width: 100%; min-width: 0;">
+          <div v-else-if="receiveStatus === 'idle' && isP2PReady" class="d-flex flex-column align-center w-100"
+            style="max-width: 100%; min-width: 0;">
             <v-icon icon="mdi-account-check-outline" size="80" color="purple-accent-3" class="mb-4"></v-icon>
             <h3 class="text-h5 font-weight-bold mb-2">已与 {{ connectedPeerName }} 建立连接</h3>
             <p class="text-medium-emphasis">正在等待对方发送文件...</p>
@@ -224,7 +228,8 @@ const formatSize = (bytes: number) => {
               :color="receiveStatus === 'done' ? 'success' : (receiveStatus === 'error' ? 'error' : 'primary')"
               class="mb-4"></v-icon>
 
-            <h3 class="text-h6 font-weight-bold mb-1 d-block" style="max-width: 100%; word-break: break-all; overflow-wrap: break-word;">
+            <h3 class="text-h6 font-weight-bold mb-1 d-block"
+              style="max-width: 100%; word-break: break-all; overflow-wrap: break-word;">
               {{ currentReceivingFile?.name || '未知文件' }}
             </h3>
             <div class="text-caption text-medium-emphasis mb-4">
@@ -276,17 +281,37 @@ const formatSize = (bytes: number) => {
             </div>
 
 
-            <div class="mt-4"></div>
-            <v-divider></v-divider>
-            <div class="mt-4"></div>
-            <div class="text-caption text-weight-bold" style="white-space: normal; word-wrap: break-word;">
-              <span>你可以在发送端设备上继续传输文件。</span><br>
-              <span>在断开与 {{ connectedPeerName }} 的连接之前，你无法接收来自其他设备的文件。</span><br>
-              <span>要断开连接，请点击“断开连接”按钮。</span>
+
+          </div>
+          <div v-if="receivedFiles.length > 0 && isP2PReady" class="w-100 px-4 px-md-10 mt-8 text-left">
+            <v-divider class="mb-4" style="opacity: 0.2"></v-divider>
+
+            <div class="d-flex justify-space-between align-center mb-2">
+              <span class="text-subtitle-2 font-weight-bold text-primary">
+                本次连接已接收 ({{ receivedFiles.length }})
+              </span>
+              <span class="text-caption text-medium-emphasis">
+                共 {{formatSize(receivedFiles.reduce((sum, f) => sum + f.size, 0))}}
+              </span>
             </div>
+
+            <v-list density="compact" bg-color="transparent" class="pa-0">
+              <v-list-item v-for="(file, index) in receivedFiles" :key="index" class="px-0 py-1">
+                <template v-slot:prepend>
+                  <v-icon icon="mdi-check-circle" color="success" size="small" class="mr-3"></v-icon>
+                </template>
+
+                <v-list-item-title class="text-body-2 font-weight-medium text-truncate">
+                  {{ file.name }}
+                </v-list-item-title>
+
+                <template v-slot:append>
+                  <span class="text-caption text-medium-emphasis ml-2">{{ formatSize(file.size) }}</span>
+                </template>
+              </v-list-item>
+            </v-list>
           </div>
         </v-card>
-
         <div class="d-flex justify-center mt-4" v-if="isElectron()">
           <v-btn variant="text" size="small" color="grey" prepend-icon="mdi-folder-marker-outline"
             @click="openDownloadsFolder">
@@ -381,6 +406,12 @@ const formatSize = (bytes: number) => {
             暂无信任设备。<br><span class="text-caption">在接收文件后会自动保存对方信息</span>
           </v-card-text>
         </v-card>
+        <div class="mt-5"></div>
+        <div class="d-flex align-center flex-column justify-center text-caption text-medium-emphasis">
+          <span>你可以在发送端设备上继续传输文件。</span>
+          <span>在断开与 {{ connectedPeerName }} 的连接之前，你无法接收来自其他设备的文件。</span>
+          <span>要断开连接，请点击“断开连接”按钮。</span>
+        </div>
       </v-col>
     </v-row>
 
