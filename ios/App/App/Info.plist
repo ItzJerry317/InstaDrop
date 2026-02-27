@@ -51,5 +51,11 @@
 		<true />
 		<key>LSSupportsOpeningDocumentsInPlace</key>
 		<true />
+		<key>NSCameraUsageDescription</key>
+    <string>访问相机以便您拍摄并发送照片。</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>访问相册以便您选择并发送图片。</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>访问麦克风以便您录制并发送视频。</string>
 	</dict>
 </plist>
