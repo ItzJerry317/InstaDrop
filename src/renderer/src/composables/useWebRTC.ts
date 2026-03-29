@@ -206,6 +206,7 @@ const cancelTransfer = () => {
 }
 
 const setupDataChannel = (channel: RTCDataChannel) => {
+  channel.bufferedAmountLowThreshold = 2 * 1024 * 1024
   // 通用onChannelOpen函数
   const onChannelOpen = () => {
     console.log('P2P 通道打通！')
@@ -821,7 +822,7 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
     channel.send(JSON.stringify({ type: 'meta', name, size }))
 
-    const chunkSize = 64 * 1024
+    const chunkSize = 256 * 1024
     let offset = 0
     sendStatus.value = { status: 'sending', message: `正在发送 ${name} (${Math.round(size / 1024)} KB)` }
 
@@ -864,8 +865,13 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
       // 流控
       if (channel.bufferedAmount > 1024 * 1024) {
-        await new Promise(r => setTimeout(r, 50))
-        continue
+        await new Promise<void>(resolve => {
+          const listener = () => {
+            channel.removeEventListener('bufferedamountlow', listener)
+            resolve()
+          }
+          channel.addEventListener('bufferedamountlow', listener)
+        })
       }
 
       // 区分环境：读取文件切片
