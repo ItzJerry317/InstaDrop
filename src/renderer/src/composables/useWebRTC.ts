@@ -2,6 +2,7 @@ import { ref, watch } from 'vue'
 import { io, Socket } from 'socket.io-client'
 import { isElectron } from '../utils/platform'
 import { Filesystem, Directory } from '@capacitor/filesystem'
+import { Capacitor } from '@capacitor/core'
 // 更改为全局变量
 
 // === 发送端状态定义 ===
@@ -19,6 +20,7 @@ const currentRoomId = ref<string | null>(null)
 const connectionError = ref<string | null>(null)
 const isHostRole = ref(false)
 const isDefaultHost = ref(false)
+const myRealIP = ref<string | null>(null)
 export interface DroppedFile {
   name: string
   path: string
@@ -423,6 +425,15 @@ const connectToDevice = (targetDeviceId: string) => {
 // === 连接管理 ===
 // === 核心信令逻辑 ===
 const connectToServer = (createRoomStat?: boolean) => {
+  if (Capacitor.isNativePlatform() && (window as any).networkinterface) {
+    (window as any).networkinterface.getWiFiIPAddress(
+      (ipInfo: any) => {
+        console.log('成功获取手机真实局域网 IP:', ipInfo.ip)
+        myRealIP.value = ipInfo.ip
+      },
+      (err: any) => console.log('📶 获取局域网 IP 失败 (可能未连 Wi-Fi):', err)
+    )
+  }
   // 动态读取信令服务器地址
   const signalingUrl = localStorage.getItem('instadrop_signaling_url') || 'http://localhost:3000' // !! dev temp
 
@@ -622,7 +633,23 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
 
   peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
-      socket?.emit('signal', { roomCode: roomId, payload: { type: 'candidate', candidate: event.candidate } })
+      let candidateString = event.candidate.candidate
+      if (myRealIP.value && candidateString.includes('.local')) {
+        console.log(`[WebRTC Hack] 拦截到虚拟 mDNS 地址，正在替换: ${myRealIP.value}`)
+        candidateString = candidateString.replace(/[0-9a-zA-Z\-]+\.local/g, myRealIP.value)
+      }
+      const hackedCandidate = {
+        candidate: candidateString,
+        sdpMid: event.candidate.sdpMid,
+        sdpMLineIndex: event.candidate.sdpMLineIndex
+      }
+
+      socket?.emit('signal', {
+        roomCode: roomId,
+        payload: { type: 'candidate', candidate: hackedCandidate }
+      })
+    } else {
+      console.log('所有 ICE Candidate 收集完毕')
     }
   }
 
@@ -875,9 +902,9 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
           // 2. 加上“看门狗”轮询：防止事件没触发，或者用户点了取消！
           const watchdog = setInterval(() => {
             if (
-              channel.bufferedAmount <= 1 * 1024 * 1024 || 
-              isCancelled.value ||         
-              channel.readyState !== 'open'                 
+              channel.bufferedAmount <= 1 * 1024 * 1024 ||
+              isCancelled.value ||
+              channel.readyState !== 'open'
             ) {
               clearInterval(watchdog)
               channel.onbufferedamountlow = null
