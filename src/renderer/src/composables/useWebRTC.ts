@@ -206,7 +206,7 @@ const cancelTransfer = () => {
 }
 
 const setupDataChannel = (channel: RTCDataChannel) => {
-  channel.bufferedAmountLowThreshold = 2 * 1024 * 1024
+  channel.bufferedAmountLowThreshold = 1 * 1024 * 1024
   // 通用onChannelOpen函数
   const onChannelOpen = () => {
     console.log('P2P 通道打通！')
@@ -822,7 +822,7 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
     channel.send(JSON.stringify({ type: 'meta', name, size }))
 
-    const chunkSize = 256 * 1024
+    const chunkSize = 64 * 1024
     let offset = 0
     sendStatus.value = { status: 'sending', message: `正在发送 ${name} (${Math.round(size / 1024)} KB)` }
 
@@ -864,13 +864,26 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
       }
 
       // 流控
-      if (channel.bufferedAmount > 1024 * 1024) {
-        await new Promise<void>(resolve => {
-          const listener = () => {
-            channel.removeEventListener('bufferedamountlow', listener)
+      if (channel.bufferedAmount > 3 * 1024 * 1024) {
+        await new Promise<void>((resolve) => {
+          channel.onbufferedamountlow = () => {
+            clearInterval(watchdog)
+            channel.onbufferedamountlow = null
             resolve()
           }
-          channel.addEventListener('bufferedamountlow', listener)
+
+          // 2. 加上“看门狗”轮询：防止事件没触发，或者用户点了取消！
+          const watchdog = setInterval(() => {
+            if (
+              channel.bufferedAmount <= 1 * 1024 * 1024 || 
+              isCancelled.value ||         
+              channel.readyState !== 'open'                 
+            ) {
+              clearInterval(watchdog)
+              channel.onbufferedamountlow = null
+              resolve() // 立刻解除阻塞，让外部的 while 循环去处理取消或断开
+            }
+          }, 50)
         })
       }
 
@@ -924,10 +937,10 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
               reject(new Error('等待对方保存文件超时'))
             }
           }, 15000)
-          
+
           eofResolver = () => {
-            clearTimeout(timeoutTimer) 
-            resolve() 
+            clearTimeout(timeoutTimer)
+            resolve()
           }
         })
       } catch (err) {
