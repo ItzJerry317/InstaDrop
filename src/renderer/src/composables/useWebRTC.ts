@@ -851,6 +851,7 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
     const chunkSize = 64 * 1024
     let offset = 0
+    let chunkCount = 0
     sendStatus.value = { status: 'sending', message: `正在发送 ${name} (${Math.round(size / 1024)} KB)` }
 
     let lastTime = Date.now()
@@ -939,6 +940,12 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
       channel.send(chunkData as any)
       offset += chunkData.byteLength
       fileProgress.value = Math.round((offset / size) * 100)
+
+      //  iOS 主线程“呼吸”机制
+      
+      if (!isElectron() && chunkCount % 10 === 0) {
+        await new Promise(r => setTimeout(r, 1))
+      }
 
       // 速度计算
       const now = Date.now()
