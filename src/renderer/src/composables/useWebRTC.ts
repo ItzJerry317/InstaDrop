@@ -850,6 +850,7 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
     channel.send(JSON.stringify({ type: 'meta', name, size }))
 
     const chunkSize = 64 * 1024
+    const fileReadSize = 2 * 1024 * 1024 // 🔥 终极杀招：每次从硬盘读取 2MB 的大块水桶！
     let offset = 0
     let chunkCount = 0
     sendStatus.value = { status: 'sending', message: `正在发送 ${name} (${Math.round(size / 1024)} KB)` }
@@ -859,95 +860,78 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
     transferSpeed.value = '计算中...'
 
     while (offset < size) {
-      // 检查取消
-      if (isCancelled.value) {
-        throw new Error('传输已被手动终止') // 统一用 throw
-      }
+      if (isCancelled.value) throw new Error('传输已被手动终止')
+      if (sendStatus.value.status === 'error' || !socket || !socket.connected) throw new Error('disconnected')
 
-      // 检查连接
-      if (sendStatus.value.status === 'error' || !socket || !socket.connected) {
-        throw new Error('disconnected')
-      }
-
-      // 暂停逻辑
+      // 处理暂停逻辑
       while (sendStatus.value.status === 'paused') {
         if (isCancelled.value) break
-        if (channel.readyState !== 'open' || !socket || !socket.connected) {
-          throw new Error('disconnected')
-        }
+        if (channel.readyState !== 'open' || !socket || !socket.connected) throw new Error('disconnected')
         transferSpeed.value = '0 B/s'
         await new Promise(r => setTimeout(r, 100))
         lastTime = Date.now()
         lastOffset = offset
       }
+      if (isCancelled.value) throw new Error('传输已被手动终止')
+      if (channel.readyState !== 'open') throw new Error('disconnected')
 
-      // 再次检查取消（暂停唤醒后）
-      if (isCancelled.value) {
-        throw new Error('传输已被手动终止')
-      }
+      let largeBuffer: ArrayBuffer | Uint8Array
+      const readEnd = Math.min(offset + fileReadSize, size)
 
-      // 检查通道
-      if (channel.readyState !== 'open') {
-        throw new Error('disconnected')
-      }
-
-      // 流控
-      if (channel.bufferedAmount > 3 * 1024 * 1024) {
-        await new Promise<void>((resolve) => {
-          channel.onbufferedamountlow = () => {
-            clearInterval(watchdog)
-            channel.onbufferedamountlow = null
-            resolve()
-          }
-
-          // 2. 加上“看门狗”轮询：防止事件没触发，或者用户点了取消！
-          const watchdog = setInterval(() => {
-            if (
-              channel.bufferedAmount <= 1 * 1024 * 1024 ||
-              isCancelled.value ||
-              channel.readyState !== 'open'
-            ) {
-              clearInterval(watchdog)
-              channel.onbufferedamountlow = null
-              resolve() // 立刻解除阻塞，让外部的 while 循环去处理取消或断开
-            }
-          }, 50)
-        })
-      }
-
-      // 区分环境：读取文件切片
-      let chunkData: ArrayBuffer | Uint8Array
       if (isElectron() && typeof fileOrPath === 'string') {
-        chunkData = await window.myElectronAPI.readFileChunk(fileOrPath, offset, chunkSize)
+        // Electron 依然调 API，读大块
+        largeBuffer = await window.myElectronAPI.readFileChunk(fileOrPath, offset, readEnd - offset)
       } else if (fileOrPath instanceof File) {
-        const blobSlice = fileOrPath.slice(offset, offset + chunkSize)
-        chunkData = await blobSlice.arrayBuffer()
+        // 手机端：一次性切下 2MB 读入内存！
+        const blobSlice = fileOrPath.slice(offset, readEnd)
+        largeBuffer = await blobSlice.arrayBuffer()
       } else {
         throw new Error('读取文件失败')
       }
 
-      if (channel.readyState !== 'open' || isCancelled.value) {
+      let bufferOffset = 0
+      while (bufferOffset < largeBuffer.byteLength) {
         if (isCancelled.value) throw new Error('传输已被手动终止')
-        throw new Error('disconnected')
+        if (channel.readyState !== 'open') throw new Error('disconnected')
+
+        // 流控：检查网卡积压 (3MB)
+        if (channel.bufferedAmount > 3 * 1024 * 1024) {
+          await new Promise<void>((resolve) => {
+            channel.onbufferedamountlow = () => {
+              clearInterval(watchdog)
+              channel.onbufferedamountlow = null
+              resolve()
+            }
+            const watchdog = setInterval(() => {
+              if (channel.bufferedAmount <= 1 * 1024 * 1024 || isCancelled.value || channel.readyState !== 'open') {
+                clearInterval(watchdog)
+                channel.onbufferedamountlow = null
+                resolve()
+              }
+            }, 50)
+          })
+        }
+
+        const sendEnd = Math.min(bufferOffset + chunkSize, largeBuffer.byteLength)
+        // 纯内存操作
+        const chunk = largeBuffer.slice(bufferOffset, sendEnd)
+        channel.send(chunk as any)
+
+        bufferOffset += chunk.byteLength
+        chunkCount++
+
+        const totalSent = offset + bufferOffset
+        fileProgress.value = Number(((totalSent / size) * 100).toFixed(2))
+
+        if (!isElectron() && chunkCount % 20 === 0) {
+          await new Promise(r => setTimeout(r, 0)) 
+        }
       }
 
-      // 发送前最后一次检查
-      if (channel.readyState !== 'open' || isCancelled.value) {
-        if (isCancelled.value) throw new Error('传输已被手动终止')
-        throw new Error('disconnected')
-      }
+      // 这一大桶 2MB 发完了，外层游标前进
+      offset += largeBuffer.byteLength
 
-      channel.send(chunkData as any)
-      offset += chunkData.byteLength
-      fileProgress.value = Math.round((offset / size) * 100)
-
-      //  iOS 主线程“呼吸”机制
-      
-      if (!isElectron() && chunkCount % 10 === 0) {
-        await new Promise(r => setTimeout(r, 1))
-      }
-
-      // 速度计算
+      // 速度计算 (保持 500ms 刷新)
       const now = Date.now()
       if (now - lastTime >= 500) {
         const speed = ((offset - lastOffset) / (now - lastTime)) * 1000
