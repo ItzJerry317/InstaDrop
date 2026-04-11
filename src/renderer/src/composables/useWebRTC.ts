@@ -208,7 +208,7 @@ const cancelTransfer = () => {
 }
 
 const setupDataChannel = (channel: RTCDataChannel) => {
-  channel.bufferedAmountLowThreshold = 1 * 1024 * 1024
+  channel.bufferedAmountLowThreshold = 64 * 1024
   // 通用onChannelOpen函数
   const onChannelOpen = () => {
     console.log('P2P 通道打通！')
@@ -664,6 +664,9 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
 let lastReceiveTime = Date.now()
 let lastReceiveOffset = 0
 let writeQueuePromise = Promise.resolve()
+let receiveBuffer: ArrayBuffer[] = []
+let receiveBufferLength = 0
+const RECEIVE_BUFFER_MAX = 2 * 1024 * 1024 // 2MB 水位线
 
 const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
   let binary = ''
@@ -735,41 +738,54 @@ const handleFileMeta = async (meta: { name: string, size: number }) => {
 const handleFileChunk = (chunk: ArrayBuffer) => {
   if (!currentReceivingFile.value) return
 
-  // 更新进度
   const fileName = currentReceivingFile.value.name
   const chunkSize = chunk.byteLength
   internalReceivedSize += chunkSize
 
-  writeQueuePromise = writeQueuePromise.then(async () => {
-    if (isElectron()) {
-      // 调用 Electron 主进程：追加写入数据
-      await window.myElectronAPI?.receiveFileChunk(chunk)
-    } else {
-      try {
-        const savedPath = localStorage.getItem('instadrop_save_path') || 'Instadrop'
-        const mobileDir = (savedPath === '默认 (下载/Instadrop)') ? 'Instadrop' : savedPath
-        const base64Chunk = arrayBufferToBase64(chunk)
-        await Filesystem.appendFile({
-          path: `${mobileDir}/${fileName}`,
-          data: base64Chunk,
-          directory: Directory.Documents
-        })
-      } catch (e) {
-        console.error('手机端追加写入切片失败:', e)
-      }
-    }
-  }).catch(e => console.error('写入队列异常:', e))
+  receiveBuffer.push(chunk)
+  receiveBufferLength += chunkSize
 
-  // 计算速度 (每 500ms 更新一次 UI)
+  if (receiveBufferLength >= RECEIVE_BUFFER_MAX) {
+    const buffersToFlush = receiveBuffer
+    const lengthToFlush = receiveBufferLength
+    receiveBuffer = []
+    receiveBufferLength = 0
+
+    writeQueuePromise = writeQueuePromise.then(async () => {
+      // 纯内存中极速拼合这 2MB 数据
+      const merged = new Uint8Array(lengthToFlush)
+      let offset = 0
+      for (const b of buffersToFlush) {
+        merged.set(new Uint8Array(b), offset)
+        offset += b.byteLength
+      }
+
+      if (isElectron()) {
+        await window.myElectronAPI?.receiveFileChunk(merged.buffer)
+      } else {
+        try {
+          const savedPath = localStorage.getItem('instadrop_save_path') || 'Instadrop'
+          const mobileDir = (savedPath === '默认 (下载/Instadrop)') ? 'Instadrop' : savedPath
+          const base64Chunk = arrayBufferToBase64(merged.buffer)
+          await Filesystem.appendFile({
+            path: `${mobileDir}/${fileName}`,
+            data: base64Chunk,
+            directory: Directory.Documents
+          })
+        } catch (e) {
+          console.error('手机端追加写入切片失败:', e)
+        }
+      }
+    }).catch(e => console.error('写入队列异常:', e))
+  }
+
   const now = Date.now()
   if (now - lastUIUpdateTime >= 100) {
-    // 只有到了时间点，才去碰 Vue 的响应式变量
     currentReceivingFile.value.receivedSize = internalReceivedSize
-    receiveProgress.value = (internalReceivedSize / currentReceivingFile.value.size) * 100
+    receiveProgress.value = Number(((internalReceivedSize / currentReceivingFile.value.size) * 100).toFixed(2))
     lastUIUpdateTime = now
   }
 
-  // 计算速度 (保持每 500ms 一次，逻辑不变)
   if (now - lastReceiveTime >= 500) {
     const speed = ((internalReceivedSize - lastReceiveOffset) / (now - lastReceiveTime)) * 1000
     receiveSpeed.value = formatSpeed(speed)
@@ -779,6 +795,37 @@ const handleFileChunk = (chunk: ArrayBuffer) => {
 }
 
 const handleFileTransferDone = async () => {
+  if (receiveBufferLength > 0) {
+    const buffersToFlush = receiveBuffer
+    const lengthToFlush = receiveBufferLength
+    const fileName = currentReceivingFile.value?.name // 必须提前存一下
+    
+    receiveBuffer = []
+    receiveBufferLength = 0
+
+    writeQueuePromise = writeQueuePromise.then(async () => {
+      const merged = new Uint8Array(lengthToFlush)
+      let offset = 0
+      for (const b of buffersToFlush) {
+        merged.set(new Uint8Array(b), offset)
+        offset += b.byteLength
+      }
+
+      if (isElectron()) {
+        await window.myElectronAPI?.receiveFileChunk(merged.buffer)
+      } else if (fileName) {
+        const savedPath = localStorage.getItem('instadrop_save_path') || 'Instadrop'
+        const mobileDir = (savedPath === '默认 (下载/Instadrop)') ? 'Instadrop' : savedPath
+        const base64Chunk = arrayBufferToBase64(merged.buffer)
+        await Filesystem.appendFile({
+          path: `${mobileDir}/${fileName}`,
+          data: base64Chunk,
+          directory: Directory.Documents
+        })
+      }
+    }).catch(e => console.error('尾部写入异常:', e))
+  }
+
   await writeQueuePromise
   receiveStatus.value = 'done'
   receiveSpeed.value = '0 B/s'
@@ -849,6 +896,8 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
     channel.send(JSON.stringify({ type: 'meta', name, size }))
 
+    await new Promise(r => setTimeout(r, 500))
+
     const chunkSize = 64 * 1024
     const fileReadSize = 2 * 1024 * 1024 // 🔥 终极杀招：每次从硬盘读取 2MB 的大块水桶！
     let offset = 0
@@ -894,8 +943,7 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
         if (isCancelled.value) throw new Error('传输已被手动终止')
         if (channel.readyState !== 'open') throw new Error('disconnected')
 
-        // 流控：检查网卡积压 (3MB)
-        if (channel.bufferedAmount > 3 * 1024 * 1024) {
+        if (channel.bufferedAmount >= 256 * 1024) {
           await new Promise<void>((resolve) => {
             channel.onbufferedamountlow = () => {
               clearInterval(watchdog)
@@ -903,12 +951,13 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
               resolve()
             }
             const watchdog = setInterval(() => {
-              if (channel.bufferedAmount <= 1 * 1024 * 1024 || isCancelled.value || channel.readyState !== 'open') {
+              // 降到 64KB 恢复
+              if (channel.bufferedAmount <= 64 * 1024 || isCancelled.value || channel.readyState !== 'open') {
                 clearInterval(watchdog)
                 channel.onbufferedamountlow = null
                 resolve()
               }
-            }, 50)
+            }, 5)
           })
         }
 
@@ -925,6 +974,8 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
         if (!isElectron() && chunkCount % 20 === 0) {
           await new Promise(r => setTimeout(r, 0)) 
+        } else if (isElectron() && chunkCount % 50 === 0) {
+          await new Promise(r => setTimeout(r, 1))
         }
       }
 
