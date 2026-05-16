@@ -63,7 +63,7 @@ watch(connectionError, (err) => {
 
 const isCheckingUpdate = ref(false)
 const hasNewVersion = ref(false)
-const currentVersion = ref('v1.2.0.1') // 你的当前版本号
+const currentVersion = ref('v1.2.0-patch1') // 你的当前版本号
 const latestVersion = ref('')
 const latestVersionInfo = ref({ version: '', url: '', notes: '' })
 

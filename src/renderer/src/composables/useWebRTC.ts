@@ -208,7 +208,7 @@ const cancelTransfer = () => {
 }
 
 const setupDataChannel = (channel: RTCDataChannel) => {
-  channel.bufferedAmountLowThreshold = 1024 * 1024
+  channel.bufferedAmountLowThreshold = 256 * 1024
   // 通用onChannelOpen函数
   const onChannelOpen = () => {
     console.log('P2P 通道打通！')
@@ -668,12 +668,12 @@ let receiveBuffer: ArrayBuffer[] = []
 let receiveBufferLength = 0
 const RECEIVE_BUFFER_MAX = 2 * 1024 * 1024 // 2MB 水位线
 
-const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
   let binary = ''
   const bytes = new Uint8Array(buffer)
-  const len = bytes.byteLength
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i])
+  const chunkSz = 8192
+  for (let i = 0; i < bytes.length; i += chunkSz) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSz))
   }
   return window.btoa(binary)
 }
@@ -898,8 +898,8 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
     await new Promise(r => setTimeout(r, 500))
 
-    const chunkSize = isElectron() ? 64 * 1024 : 16 * 1024 
-    const fileReadSize = isElectron() ? 2 * 1024 * 1024 : 512 * 1024
+    const chunkSize = isElectron() ? 64 * 1024 : 164 * 1024 
+    const fileReadSize = isElectron() ? 2 * 1024 * 1024 : 2 * 1024 * 1024
     let offset = 0
     let chunkCount = 0
     sendStatus.value = { status: 'sending', message: `正在发送 ${name} (${Math.round(size / 1024)} KB)` }
@@ -980,7 +980,7 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
       // 这一大桶 2MB 发完了，外层游标前进
       offset += largeBuffer.byteLength
-      
+
       if (!isElectron()) {
         await new Promise(r => setTimeout(r, 0))
       }
