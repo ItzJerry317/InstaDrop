@@ -611,6 +611,17 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
     console.log('[物理层状态]:', state)
     if (state === 'connected' || state === 'completed') {
       clearWatchdog()
+
+      peerConnection?.getStats().then(stats => {
+      stats.forEach(report => {
+        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          console.log('[ICE] Active pair:', JSON.stringify(report))
+        }
+        if (report.type === 'local-candidate') {
+          console.log('[ICE] Local candidate type:', report.candidateType, report.address)
+        }
+      })
+    })
     }
     if (state === 'disconnected' || state === 'failed' || state === 'closed') {
       handleDisconnect('连接断开')
@@ -620,7 +631,10 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
 
   if (isPolite) {
     // 我是发送方 (Host)：主动创建通道
-    dataChannel = peerConnection.createDataChannel('instadrop-file')
+    dataChannel = peerConnection.createDataChannel('instadrop-file', {
+      ordered: false,
+      maxRetransmits: 0
+    })
     setupDataChannel(dataChannel)
   } else {
     // 我是接收方 (Client)：等待对方创建通道
@@ -898,8 +912,8 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
     await new Promise(r => setTimeout(r, 500))
 
-    const chunkSize = isElectron() ? 64 * 1024 : 164 * 1024 
-    const fileReadSize = isElectron() ? 2 * 1024 * 1024 : 2 * 1024 * 1024
+    const chunkSize = isElectron() ? 64 * 1024 : 16 * 1024 
+    const fileReadSize = isElectron() ? 2 * 1024 * 1024 : 512 * 1024
     let offset = 0
     let chunkCount = 0
     sendStatus.value = { status: 'sending', message: `正在发送 ${name} (${Math.round(size / 1024)} KB)` }
