@@ -6,12 +6,24 @@ import { SystemInfo } from '../shared/types';
 import chalk from 'chalk';
 import fs from 'fs'
 import path from 'path'
+import http from 'http'
+import os from 'os'
+import url from 'url'
+import https from 'https'
 //声明chalk等级
 chalk.level = 2;
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns')
 
 let currentWriteStream: fs.WriteStream | null = null
 let currentReceivedPath: string = ''
+
+let receiveServer: http.Server | null = null
+let receiveServerUrl: string | null = null
+
+const sendToRenderer = (channel: string, ...args: any[]) => {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+  if (win) win.webContents.send(channel, ...args)
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -179,6 +191,151 @@ app.whenReady().then(() => {
   // ==========================================
   //  文件接收 API (Receive Logic)
   // ==========================================
+
+  // 新增：启动本地 HTTP 接收服务器（返回一个可在局域网访问的 URL）
+  ipcMain.handle('start-receive-server', async (_event, saveDir?: string) => {
+    if (receiveServer) {
+      return { success: true, url: receiveServerUrl }
+    }
+
+    // 确定保存目录
+    let targetFolder = ''
+    if (saveDir && fs.existsSync(saveDir)) {
+      targetFolder = saveDir
+    } else {
+      const downloadsPath = app.getPath('downloads')
+      targetFolder = path.join(downloadsPath, 'Instadrop')
+    }
+    if (!fs.existsSync(targetFolder)) fs.mkdirSync(targetFolder, { recursive: true })
+
+    receiveServer = http.createServer((req, res) => {
+      // CORS
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+      res.setHeader('Access-Control-Allow-Headers', 'x-filename,content-type')
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204)
+        res.end()
+        return
+      }
+
+      if (req.url !== '/upload' || req.method !== 'POST') {
+        res.statusCode = 404
+        res.end('Not Found')
+        return
+      }
+
+      const rawName = (req.headers['x-filename'] as string) || `unknown-${Date.now()}`
+      let fileName = ''
+      try { fileName = decodeURIComponent(rawName) } catch { fileName = rawName }
+
+      // 防重名
+      const ext = path.extname(fileName)
+      const name = path.basename(fileName, ext)
+      let finalFileName = fileName
+      let counter = 1
+      let fullPath = path.join(targetFolder, finalFileName)
+      while (fs.existsSync(fullPath)) {
+        finalFileName = `${name} (${counter})${ext}`
+        fullPath = path.join(targetFolder, finalFileName)
+        counter++
+      }
+
+      const writeStream = fs.createWriteStream(fullPath)
+
+      req.on('data', (chunk: Buffer) => {
+        // forward incremental progress to renderer
+        sendToRenderer('receive-progress', chunk.length)
+      })
+
+      req.pipe(writeStream)
+
+      writeStream.on('finish', () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true }))
+        sendToRenderer('receive-done', fullPath)
+      })
+
+      writeStream.on('error', (err) => {
+        console.error('写入错误', err)
+        try { res.writeHead(500); res.end('Write error') } catch (e) {}
+      })
+
+      req.on('aborted', () => {
+        writeStream.destroy()
+      })
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      receiveServer!.listen(0, '0.0.0.0', () => resolve())
+      receiveServer!.once('error', reject)
+    })
+
+    const addr = receiveServer!.address() as any
+    const port = addr.port
+
+    // pick a LAN IPv4 address
+    const nets = os.networkInterfaces()
+    let ip = '127.0.0.1'
+    for (const name of Object.keys(nets)) {
+      for (const ni of nets[name]!) {
+        if (ni.family === 'IPv4' && !ni.internal) {
+          ip = ni.address
+          break
+        }
+      }
+      if (ip !== '127.0.0.1') break
+    }
+
+    receiveServerUrl = `http://${ip}:${port}`
+    return { success: true, url: receiveServerUrl }
+  })
+
+  ipcMain.handle('stop-receive-server', async () => {
+    if (!receiveServer) return { success: true }
+    return new Promise((resolve) => {
+      receiveServer!.close(() => {
+        receiveServer = null
+        receiveServerUrl = null
+        resolve({ success: true })
+      })
+    })
+  })
+
+  // Electron helper: upload local file to remote HTTP endpoint
+  ipcMain.handle('upload-file-to-url', async (_event, filePath: string, targetUrl: string) => {
+    return new Promise<void>((resolve, reject) => {
+      try {
+        const parsed = new url.URL(targetUrl)
+        const isHttps = parsed.protocol === 'https:'
+        const mod = isHttps ? https : http
+        const filename = encodeURIComponent(path.basename(filePath))
+        const options: any = {
+          method: 'POST',
+          hostname: parsed.hostname,
+          port: parsed.port || (isHttps ? 443 : 80),
+          path: parsed.pathname + (parsed.search || '') + '/upload',
+          headers: {
+            'x-filename': filename,
+            'Content-Type': 'application/octet-stream'
+          }
+        }
+        const req = mod.request(options, (res) => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            resolve()
+          } else {
+            reject(new Error('Upload failed: ' + res.statusCode))
+          }
+        })
+        req.on('error', reject)
+        const rs = fs.createReadStream(filePath)
+        rs.on('error', reject)
+        rs.pipe(req)
+      } catch (e) { reject(e) }
+    })
+  })
+
 
   // 1. 开始接收：创建文件流
   ipcMain.handle('start-receive-file', async (_event, fileName: string, _fileSize: number, saveDirectory?: string) => {

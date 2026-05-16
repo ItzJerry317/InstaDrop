@@ -1,6 +1,6 @@
 {
   "name": "instadrop",
-  "version": "1.2.0-patch2",
+  "version": "1.2.0-dev.1",
   "description": "An Electron application with Vue and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",

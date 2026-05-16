@@ -56,6 +56,8 @@ let dataChannel: RTCDataChannel | null = null
 let pendingCandidates: RTCIceCandidateInit[] = []
 let transferRequestResolver: ((value: boolean | string) => void) | null = null
 let eofResolver: (() => void) | null = null
+let httpReadyResolver: ((url: string) => void) | null = null
+let httpDoneResolver: (() => void) | null = null
 // 获取房间码防抖
 let lastAutoCreateTime = 0
 // WebRTC watchdog
@@ -208,13 +210,9 @@ const cancelTransfer = () => {
 }
 
 const setupDataChannel = (channel: RTCDataChannel) => {
-  channel.bufferedAmountLowThreshold = 256 * 1024
-  // 通用onChannelOpen函数
+  // only used for signalling now
   const onChannelOpen = () => {
-    console.log('P2P 通道打通！')
-    // isP2PReady.value = true
-
-    // 发送身份握手
+    console.log('P2P 通道打通！ (signaling ready)')
     channel.send(JSON.stringify({
       type: 'identity-handshake',
       id: myDeviceId.value,
@@ -222,87 +220,68 @@ const setupDataChannel = (channel: RTCDataChannel) => {
     }))
   }
 
-  // 针对较慢建立的连接，正常绑定
   channel.onopen = onChannelOpen
-
-  // 如果当前通道状态已经是 open，手动触发一次，修复有时虽然通道已打开但不能更新ui状态的bug
-  // (针对接收端，往往收到通道时已经是 open 状态)
-  if (channel.readyState === 'open') {
-    onChannelOpen()
-  }
+  if (channel.readyState === 'open') onChannelOpen()
 
   channel.onmessage = (e) => {
-    const data = e.data
-
-    // 1. 处理二进制数据 (文件切片)
-    if (data instanceof ArrayBuffer) {
-      handleFileChunk(data)
-      return
-    }
-
     try {
-      // 这里处理握手消息，如果收到 identity-handshake，就存入信任列表
-      const msg = JSON.parse(e.data as string)
+      const data = e.data
+      const msg = typeof data === 'string' ? JSON.parse(data) : null
+      if (!msg) return
+
       if (msg.type === 'request-transfer') {
-        // 检查本地是否正在收/发文件
         const isBusy = receiveStatus.value === 'receiving' ||
           sendStatus.value.status === 'sending' ||
           sendStatus.value.status === 'paused'
-
-        if (isBusy) {
-          channel.send(JSON.stringify({ type: 'response-transfer', accepted: false, reason: '对方设备正忙 (正在传输其他文件)，请稍后再试' }))
-        } else {
-          channel.send(JSON.stringify({ type: 'response-transfer', accepted: true }))
-        }
+        channel.send(JSON.stringify({ type: 'response-transfer', accepted: !isBusy, reason: isBusy ? '对方设备正忙' : undefined }))
         return
       }
+
       if (msg.type === 'response-transfer') {
         if (transferRequestResolver) {
-          if (msg.accepted) {
-            transferRequestResolver(true)
-          } else {
-            transferRequestResolver(msg.reason)
-          }
+          if (msg.accepted) transferRequestResolver(true)
+          else transferRequestResolver(msg.reason)
           transferRequestResolver = null
         }
         return
       }
-      if (msg.type === 'eof-ack') {
-        console.log('收到eof-ack')
-        if (eofResolver) {
-          eofResolver()
-          eofResolver = null
+
+      if (msg.type === 'identity-handshake') {
+        addTrustedDevice(msg.id, msg.name)
+        connectedPeerId.value = msg.id
+        connectedPeerName.value = msg.name
+        const existingDevice = trustedDevices.value.find(d => d.id === msg.id)
+        if (existingDevice && existingDevice.remark) connectedPeerName.value = existingDevice.remark
+        isP2PReady.value = true
+        return
+      }
+
+      // Receiver: meta indicates incoming transfer. handleFileMeta will start HTTP server and reply http-ready
+      if (msg.type === 'meta') {
+        handleFileMeta({ name: msg.name, size: msg.size })
+        return
+      }
+
+      // Sender: when remote announces its HTTP endpoint
+      if (msg.type === 'http-ready') {
+        if (httpReadyResolver) {
+          httpReadyResolver(msg.url)
+          httpReadyResolver = null
         }
         return
       }
-      if (msg.type === 'identity-handshake') {
-        console.log('收到身份握手:', msg.name)
-        addTrustedDevice(msg.id, msg.name)
-        connectedPeerId.value = msg.id // 记录当前连接的设备 ID
-        connectedPeerName.value = msg.name // 记录当前连接的设备名称
 
-        // 如果有备注，就用备注
-        const existingDevice = trustedDevices.value.find(d => d.id === msg.id)
-        if (existingDevice && existingDevice.remark) {
-          connectedPeerName.value = existingDevice.remark
-        } else {
-          connectedPeerName.value = msg.name
+      // When receiver notifies upload saved & done
+      if (msg.type === 'http-done') {
+        if (httpDoneResolver) {
+          httpDoneResolver()
+          httpDoneResolver = null
         }
+        return
+      }
 
-        isP2PReady.value = true
-      }
-      else if (msg.type === 'meta') {
-        // 收到文件头 准备接收
-        console.log('收到文件发送请求:', msg.name, msg.size)
-        handleFileMeta(msg)
-      }
-      else if (msg.type === 'eof') {
-        // 收到结束符 接收完成
-        console.log('文件接收完成')
-        handleFileTransferDone()
-      }
     } catch (err) {
-      console.error('消息解析失败', err)
+      console.error('信令解析失败', err)
     }
   }
 
@@ -693,190 +672,100 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
 }
 
 const handleFileMeta = async (meta: { name: string, size: number }) => {
-  // 重置内部计数器
+  // reset counters & UI
   internalReceivedSize = 0
   lastUIUpdateTime = 0
-
-  // 更新 UI 状态
   receiveStatus.value = 'receiving'
-  currentReceivingFile.value = {
-    name: meta.name,
-    size: meta.size,
-    receivedSize: 0
-  }
+  currentReceivingFile.value = { name: meta.name, size: meta.size, receivedSize: 0 }
   receiveProgress.value = 0
   receiveSpeed.value = '0 B/s'
 
-  // 重置速度计算器
-  lastReceiveTime = Date.now()
-  lastReceiveOffset = 0
-
-  // 重置接收队列
-  writeQueuePromise = (async () => {
+  // Start a local HTTP server depending on platform. After server is started, send http-ready via dataChannel so sender can POST file.
+  let localUrl: string | null = null
+  try {
     if (isElectron()) {
       const savedPath = localStorage.getItem('instadrop_save_path')
       const targetPath = (savedPath && savedPath !== '默认 (下载/Instadrop)') ? savedPath : undefined
-      await window.myElectronAPI?.startReceiveFile(meta.name, meta.size, targetPath)
-    } else {
-      try {
-        const savedPath = localStorage.getItem('instadrop_save_path') || 'Instadrop'
-        const mobileDir = (savedPath === '默认 (下载/Instadrop)') ? 'Instadrop' : savedPath
-
-        // 🔥 双重保险：显式创建父文件夹 (如果文件夹已存在会抛错，直接 catch 忽略)
-        try {
-          await Filesystem.mkdir({
-            path: mobileDir,
-            directory: Directory.Documents,
-            recursive: true
-          })
-        } catch (err) {
-          // 忽略目录已存在的错误
+      const res = await window.myElectronAPI.startReceiveServer(targetPath)
+      localUrl = (res && (res as any).url) || (res as any)
+      // subscribe to progress/done
+      const unsubProgress = window.myElectronAPI.onReceiveProgress((chunkLen: number) => {
+        internalReceivedSize += chunkLen
+        const now = Date.now()
+        if (currentReceivingFile.value) {
+          currentReceivingFile.value.receivedSize = internalReceivedSize
+          receiveProgress.value = Number(((internalReceivedSize / currentReceivingFile.value.size) * 100).toFixed(2))
         }
-
-        // 等文件夹确保创建完毕后，再写入空文件初始化
-        await Filesystem.writeFile({
-          path: `${mobileDir}/${meta.name}`,
-          data: '',
-          directory: Directory.Documents,
-          recursive: true
-        })
-      } catch (e) {
-        console.error('初始化手机文件失败:', e)
-        receiveStatus.value = 'error'
-        receiveError.value = '无法在手机上创建文件'
-      }
+        if (now - lastReceiveTime >= 500) {
+          const speed = ((internalReceivedSize - lastReceiveOffset) / (now - lastReceiveTime)) * 1000
+          receiveSpeed.value = formatSpeed(speed)
+          lastReceiveTime = now
+          lastReceiveOffset = internalReceivedSize
+        }
+      })
+      const unsubDone = window.myElectronAPI.onReceiveDone((filePath: string) => {
+        // notify sender that file saved
+        dataChannel?.send(JSON.stringify({ type: 'http-done', path: filePath }))
+        // cleanup listeners
+        unsubProgress()
+        unsubDone()
+        receiveStatus.value = 'done'
+        receiveProgress.value = 100
+        receiveSpeed.value = '0 B/s'
+        if (currentReceivingFile.value) {
+          receivedFiles.value.push({ name: currentReceivingFile.value.name, size: currentReceivingFile.value.size, timestamp: Date.now() })
+        }
+      })
+    } else if (Capacitor.isNativePlatform()) {
+      // PSEUDOCODE: attempt to start an embedded HTTP server plugin on mobile
+      // This requires adding a plugin such as cordova-plugin-httpd or @ionic-native/httpd.
+      // Example pseudo:
+      /*
+      const httpd = (window as any).cordovaHTTPD || (window as any).httpd
+      if (!httpd) throw new Error('请在移动端安装 cordova-plugin-httpd 或 @ionic-native/httpd，并重建应用')
+      const startInfo = await httpd.startServer({ www_root: '', port: 8080, localhost_only: false })
+      localUrl = `http://${myRealIP.value || '127.0.0.1'}:${startInfo.port}`
+      // then use plugin events or simple server-side handlers to stream to filesystem and update progress/done
+      */
+      throw new Error('移动端本地 HTTP Server 未实现。请安装 cordova-plugin-httpd 或 @ionic-native/httpd 并实现启动逻辑。')
+    } else {
+      // Browser (unlikely as receiver) — fallback to error
+      throw new Error('当前环境不支持作为接收端启动本地 HTTP Server')
     }
-  })()
+
+    // notify sender that HTTP endpoint is ready
+    if (localUrl && dataChannel && dataChannel.readyState === 'open') {
+      dataChannel.send(JSON.stringify({ type: 'http-ready', url: localUrl }))
+    }
+  } catch (err: any) {
+    console.error('启动接收服务器失败', err)
+    receiveStatus.value = 'error'
+    receiveError.value = err?.message || String(err)
+  }
 }
 
-const handleFileChunk = (chunk: ArrayBuffer) => {
-  if (!currentReceivingFile.value) return
-
-  const fileName = currentReceivingFile.value.name
-  const chunkSize = chunk.byteLength
-  internalReceivedSize += chunkSize
-
-  receiveBuffer.push(chunk)
-  receiveBufferLength += chunkSize
-
-  if (receiveBufferLength >= RECEIVE_BUFFER_MAX) {
-    const buffersToFlush = receiveBuffer
-    const lengthToFlush = receiveBufferLength
-    receiveBuffer = []
-    receiveBufferLength = 0
-
-    writeQueuePromise = writeQueuePromise.then(async () => {
-      // 纯内存中极速拼合这 2MB 数据
-      const merged = new Uint8Array(lengthToFlush)
-      let offset = 0
-      for (const b of buffersToFlush) {
-        merged.set(new Uint8Array(b), offset)
-        offset += b.byteLength
-      }
-
-      if (isElectron()) {
-        await window.myElectronAPI?.receiveFileChunk(merged.buffer)
-      } else {
-        try {
-          const savedPath = localStorage.getItem('instadrop_save_path') || 'Instadrop'
-          const mobileDir = (savedPath === '默认 (下载/Instadrop)') ? 'Instadrop' : savedPath
-          const base64Chunk = arrayBufferToBase64(merged.buffer)
-          await Filesystem.appendFile({
-            path: `${mobileDir}/${fileName}`,
-            data: base64Chunk,
-            directory: Directory.Documents
-          })
-        } catch (e) {
-          console.error('手机端追加写入切片失败:', e)
-        }
-      }
-    }).catch(e => console.error('写入队列异常:', e))
-  }
-
-  const now = Date.now()
-  if (now - lastUIUpdateTime >= 100) {
-    currentReceivingFile.value.receivedSize = internalReceivedSize
-    receiveProgress.value = Number(((internalReceivedSize / currentReceivingFile.value.size) * 100).toFixed(2))
-    lastUIUpdateTime = now
-  }
-
-  if (now - lastReceiveTime >= 500) {
-    const speed = ((internalReceivedSize - lastReceiveOffset) / (now - lastReceiveTime)) * 1000
-    receiveSpeed.value = formatSpeed(speed)
-    lastReceiveTime = now
-    lastReceiveOffset = internalReceivedSize
-  }
+const handleFileChunk = (_chunk: ArrayBuffer) => {
+  // Deprecated: chunk-based receiving removed. HTTP receive server used instead.
+  console.warn('收到二进制切片，但当前实现已迁移到 HTTP 直传，不应接收 DataChannel 二进制.')
 }
 
 const handleFileTransferDone = async () => {
-  if (receiveBufferLength > 0) {
-    const buffersToFlush = receiveBuffer
-    const lengthToFlush = receiveBufferLength
-    const fileName = currentReceivingFile.value?.name // 必须提前存一下
-
-    receiveBuffer = []
-    receiveBufferLength = 0
-
-    writeQueuePromise = writeQueuePromise.then(async () => {
-      const merged = new Uint8Array(lengthToFlush)
-      let offset = 0
-      for (const b of buffersToFlush) {
-        merged.set(new Uint8Array(b), offset)
-        offset += b.byteLength
-      }
-
-      if (isElectron()) {
-        await window.myElectronAPI?.receiveFileChunk(merged.buffer)
-      } else if (fileName) {
-        const savedPath = localStorage.getItem('instadrop_save_path') || 'Instadrop'
-        const mobileDir = (savedPath === '默认 (下载/Instadrop)') ? 'Instadrop' : savedPath
-        const base64Chunk = arrayBufferToBase64(merged.buffer)
-        await Filesystem.appendFile({
-          path: `${mobileDir}/${fileName}`,
-          data: base64Chunk,
-          directory: Directory.Documents
-        })
-      }
-    }).catch(e => console.error('尾部写入异常:', e))
-  }
-
-  await writeQueuePromise
+  // Deprecated — HTTP transport handles finalization (receive-done via IPC)
   receiveStatus.value = 'done'
-  receiveSpeed.value = '0 B/s'
   receiveProgress.value = 100
-  if (currentReceivingFile.value) {
-    currentReceivingFile.value.receivedSize = currentReceivingFile.value.size
-    receivedFiles.value.push({
-      name: currentReceivingFile.value.name,
-      size: currentReceivingFile.value.size,
-      timestamp: Date.now()
-    })
-  }
-
-  if (isElectron()) {
-    // 调用 Electron 主进程：关闭文件流
-    await window.myElectronAPI?.finishReceiveFile()
-  } else {
-    // 手机端此时已存储完毕 直接关闭即可
-    console.log(`文件已完整保存到 Documents/Instadrop/${currentReceivingFile.value?.name}`)
-  }
-  console.log('存储完毕，正在发送eof-ack')
-  dataChannel?.send(JSON.stringify({ type: 'eof-ack' }))
+  receiveSpeed.value = '0 B/s'
 }
 
 // 去掉 new Promise 包装，直接声明 async 函数
 const sendFile = async (fileOrPath: string | File): Promise<void> => {
-  // 2. 检查前置条件
   const channel = dataChannel
   if (!channel || channel.readyState !== 'open') {
-    throw new Error('P2P 通道未打开') // 直接 throw，会被下面的 catch 捕获
+    throw new Error('P2P 通道未打开')
   }
 
   try {
     isCancelled.value = false
-    if (receiveStatus.value === 'receiving') {
-      throw new Error('本地正在接收文件，无法同时发送')
-    }
+    if (receiveStatus.value === 'receiving') throw new Error('本地正在接收文件，无法同时发送')
     sendStatus.value = { status: 'idle', message: '正在等待对方确认...' }
     const canSend = await new Promise<boolean | string>((resolve) => {
       transferRequestResolver = resolve
@@ -892,8 +781,8 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
       sendStatus.value = { status: 'error', message: canSend as string }
       throw new Error(canSend as string)
     }
-    sendStatus.value = { status: 'sending' }
-    // 1. 双端获取文件元数据
+
+    // gather metadata
     let name = ''
     let size = 0
     if (isElectron() && typeof fileOrPath === 'string') {
@@ -908,149 +797,74 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
     }
     currentFile.value = { name, size }
 
+    // send meta
     channel.send(JSON.stringify({ type: 'meta', name, size }))
 
-    await new Promise(r => setTimeout(r, 500))
+    // Wait for receiver to start its HTTP server and announce URL (http-ready)
+    const httpUrl = await new Promise<string>((resolve, reject) => {
+      httpReadyResolver = resolve
+      setTimeout(() => {
+        if (httpReadyResolver) {
+          httpReadyResolver = null
+          reject(new Error('等待对方启动 HTTP 服务超时'))
+        }
+      }, 15000)
+    })
 
-    const chunkSize = isElectron() ? 64 * 1024 : 16 * 1024 
-    const fileReadSize = isElectron() ? 2 * 1024 * 1024 : 512 * 1024
-    let offset = 0
-    let chunkCount = 0
-    sendStatus.value = { status: 'sending', message: `正在发送 ${name} (${Math.round(size / 1024)} KB)` }
-
-    let lastTime = Date.now()
-    let lastOffset = 0
+    // Perform upload: prefer XHR on browser/Capacitor for progress; use main-process helper on Electron path-based files
+    sendStatus.value = { status: 'sending', message: `正在上传 ${name}` }
+    fileProgress.value = 0
     transferSpeed.value = '计算中...'
 
-    while (offset < size) {
-      if (isCancelled.value) throw new Error('传输已被手动终止')
-      if (sendStatus.value.status === 'error' || !socket || !socket.connected) throw new Error('disconnected')
-
-      // 处理暂停逻辑
-      while (sendStatus.value.status === 'paused') {
-        if (isCancelled.value) break
-        if (channel.readyState !== 'open' || !socket || !socket.connected) throw new Error('disconnected')
-        transferSpeed.value = '0 B/s'
-        await new Promise(r => setTimeout(r, 100))
-        lastTime = Date.now()
-        lastOffset = offset
-      }
-      if (isCancelled.value) throw new Error('传输已被手动终止')
-      if (channel.readyState !== 'open') throw new Error('disconnected')
-
-      let largeBuffer: ArrayBuffer | Uint8Array
-      const readEnd = Math.min(offset + fileReadSize, size)
-
-      if (isElectron() && typeof fileOrPath === 'string') {
-        // Electron 依然调 API，读大块
-        largeBuffer = await window.myElectronAPI.readFileChunk(fileOrPath, offset, readEnd - offset)
-      } else if (fileOrPath instanceof File) {
-        // 手机端：一次性切下 2MB 读入内存！
-        const blobSlice = fileOrPath.slice(offset, readEnd)
-        largeBuffer = await blobSlice.arrayBuffer()
-      } else {
-        throw new Error('读取文件失败')
-      }
-
-      const maxBuffer = isElectron() ? 1 * 1024 * 1024 : 1 * 1024 * 1024 // iOS 允许积压 1MB
-      const minBuffer = isElectron() ? 512 * 1024 : 256 * 1024      // iOS 降到 256KB 才唤醒
-      let bufferOffset = 0
-      while (bufferOffset < largeBuffer.byteLength) {
-        if (isCancelled.value) throw new Error('传输已被手动终止')
-        if (channel.readyState !== 'open') throw new Error('disconnected')
-        if (channel.bufferedAmount > maxBuffer) {
-          await new Promise<void>((resolve) => {
-            channel.onbufferedamountlow = () => {
-              clearInterval(watchdog)
-              channel.onbufferedamountlow = null
-              resolve()
-            }
-            const watchdog = setInterval(() => {
-              // 降到 64KB 恢复
-              if (channel.bufferedAmount <= minBuffer || isCancelled.value || channel.readyState !== 'open') {
-                clearInterval(watchdog)
-                channel.onbufferedamountlow = null
-                resolve()
-              }
-            }, 10)
-          })
+    if (fileOrPath instanceof File) {
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', `${httpUrl}/upload`)
+        xhr.setRequestHeader('x-filename', encodeURIComponent(name))
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            fileProgress.value = Number(((e.loaded / e.total) * 100).toFixed(1))
+          } else {
+            if (size > 0) fileProgress.value = Number(((e.loaded / size) * 100).toFixed(1))
+          }
         }
-
-        const sendEnd = Math.min(bufferOffset + chunkSize, largeBuffer.byteLength)
-        // 纯内存操作
-        const chunk = largeBuffer.slice(bufferOffset, sendEnd)
-        channel.send(chunk as any)
-
-        bufferOffset += chunk.byteLength
-        chunkCount++
-
-        const totalSent = offset + bufferOffset
-        fileProgress.value = Number(((totalSent / size) * 100).toFixed(1))
-
-        if (isElectron()) {
-          await new Promise(r => setTimeout(r, 1))
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve()
+          else reject(new Error('上传失败: ' + xhr.status))
         }
-      }
-
-      // 这一大桶 2MB 发完了，外层游标前进
-      offset += largeBuffer.byteLength
-
-      if (!isElectron()) {
-        await new Promise(r => setTimeout(r, 0))
-      }
-      // 速度计算 (保持 500ms 刷新)
-      const now = Date.now()
-      if (now - lastTime >= 500) {
-        const speed = ((offset - lastOffset) / (now - lastTime)) * 1000
-        transferSpeed.value = formatSpeed(speed)
-        lastTime = now
-        lastOffset = offset
-      }
+        xhr.onerror = (err) => reject(err)
+        xhr.send(fileOrPath)
+      })
+    } else {
+      // Electron: fileOrPath is local file path string
+      await window.myElectronAPI.uploadFileToUrl(fileOrPath as string, httpUrl)
     }
 
-    // 完成逻辑
-    if (!isCancelled.value && sendStatus.value.status !== 'error') {
-      channel.send(JSON.stringify({ type: 'eof' }))
-      sendStatus.value = { status: 'sending', message: `等待对方保存文件` }
-      try {
-        await new Promise<void>((resolve, reject) => {
-          eofResolver = resolve
-          // 给对方 15 秒的极限硬盘写入时间，防止无限卡死
-          const timeoutTimer = setTimeout(() => {
-            if (eofResolver) {
-              eofResolver = null
-              reject(new Error('等待对方保存文件超时'))
-            }
-          }, 15000)
-
-          eofResolver = () => {
-            clearTimeout(timeoutTimer)
+    // Wait for receiver to confirm save (http-done via dataChannel)
+    try {
+      await new Promise<void>((resolve, reject) => {
+        httpDoneResolver = resolve
+        setTimeout(() => {
+          if (httpDoneResolver) {
+            httpDoneResolver = null
+            // not fatal: upload done on our side, but receiver didn't ack in time
             resolve()
           }
-        })
-      } catch (err) {
-        console.warn(err)
-      }
+        }, 15000)
+      })
+    } catch { /* ignore */ }
 
-      // 等对方完全保存后，再彻底结束当前文件的发送
-      sendStatus.value = { status: 'done', message: `文件 ${name} 发送完成` }
-      transferSpeed.value = '0 B/s'
-    }
-
+    sendStatus.value = { status: 'done', message: `文件 ${name} 发送完成` }
+    transferSpeed.value = '0 B/s'
   } catch (err: any) {
     if (isCancelled.value) {
-      // 场景 A: 断开连接 (保留 Error)
-      // 场景 B: 终止传输 (重置 Idle)
-      if (sendStatus.value.status !== 'error') {
-        resetTransfer()
-      }
+      resetTransfer()
     } else {
-      const errorMsg = err.message === 'disconnected' ? '连接意外断开 (Disconnected)' : (err.message || '未知错误')
+      const errorMsg = err.message || '未知错误'
       sendStatus.value = { status: 'error', message: `传输异常：${errorMsg}` }
       transferSpeed.value = '0 B/s'
     }
-
-    throw err // 继续向上抛出，以便调用者也能感知
+    throw err
   }
 }
 
