@@ -485,6 +485,8 @@ onMounted(() => {
             </v-card-actions>
           </v-card>
         </v-expand-transition>
+        <div style="height: 10px;"></div>
+        
       </v-col>
 
       <v-col cols="12" md="6">

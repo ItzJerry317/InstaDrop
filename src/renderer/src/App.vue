@@ -60,8 +60,51 @@ watch(connectionError, (err) => {
   }
 })
 
+
+const isCheckingUpdate = ref(false)
+const hasNewVersion = ref(false)
+const currentVersion = ref('v1.1.9') // 你的当前版本号
+const latestVersion = ref('')
+const latestVersionInfo = ref({ version: '', url: '', notes: '' })
+
+const checkForUpdates = async () => {
+  if (isCheckingUpdate.value) return
+  isCheckingUpdate.value = true
+
+  try {
+    const response = await fetch('https://api.github.com/repos/ItzJerry317/Instadrop/releases/latest')
+    const data = await response.json()
+    latestVersion.value = data.tag_name
+
+    // 假设这是从你的服务器拉取到的最新版本信息
+    const mockApiResult = {
+      version: latestVersion.value, // 试试把它改成 v1.0.0 测试“已是最新版”的提示
+      url: 'https://github.com/ItzJerry317/Instadrop/releases/' + latestVersion.value, // 下载链接
+      notes: data.body
+    }
+
+    // 对比版本号 (这里做了简单的字符串对比，实际开发可用 semver 库)
+    if (mockApiResult.version !== currentVersion.value) {
+      hasNewVersion.value = true
+      latestVersionInfo.value = mockApiResult
+    } else {
+      hasNewVersion.value = false
+    }
+  } catch (error) {
+    console.error('检查更新失败:', error)
+  } finally {
+    isCheckingUpdate.value = false
+  }
+}
+
+const openDownloadUrl = () => {
+  // 跨平台通用的打开外部浏览器的方法
+  window.open(latestVersionInfo.value.url, '_blank')
+}
+
 onMounted(() => {
   applyTheme(themePreference.value)
+  checkForUpdates()
   if (isElectron()) {
     checkWindowStatus()
     window.myElectronAPI.onWindowStateChanged((newState) => {
@@ -86,6 +129,9 @@ onUnmounted(() => {
       <v-btn icon="mdi-menu" style="-webkit-app-region: no-drag;" @click="drawer = !drawer"></v-btn>
       <v-app-bar-title>Instadrop</v-app-bar-title>
       <v-spacer></v-spacer>
+      <v-btn style="-webkit-app-region: no-drag;" variant="elevated" size="small" color="warning" v-if="hasNewVersion" @click="openDownloadUrl">
+        更新
+      </v-btn>
       <v-btn icon="mdi-window-minimize" style="-webkit-app-region: no-drag;" @click="minimizeApp"
         v-if="isElectron()"></v-btn>
       <v-btn :icon="windowStatus" style="-webkit-app-region: no-drag;" @click="toggleWindowStatus"
