@@ -15,12 +15,17 @@ declare global {
       onWindowStateChanged: (callback: (state: string) => void) => void;
       getFileInfo: (filePath: string) => Promise<{name: string, size: number}>;
       readFileChunk: (filePath: string, offset: number, chunkSize: number) => Promise<Uint8Array>;
-      startReceiveFile: (fileName: string, fileSize: number, savePath?: string) => Promise<void>
-      receiveFileChunk: (chunk: ArrayBuffer) => Promise<void>
-      finishReceiveFile: () => Promise<void>
-      openDownloadsFolder: (path?: string) => Promise<void>
-      selectFolder: () => Promise<string | null>
-      getAutoStartStatus: () => Promise<boolean>
+      startReceiveFile: (fileName: string, fileSize: number, savePath?: string) => Promise<void>;
+      receiveFileChunk: (chunk: ArrayBuffer) => Promise<void>;
+      finishReceiveFile: () => Promise<void>;
+      startReceiveServer: (saveDir?: string) => Promise<{ success: boolean; url?: string }>;
+      stopReceiveServer: () => Promise<{ success: boolean }>;
+      onReceiveProgress: (cb: (chunkLength: number) => void) => () => void;
+      onReceiveDone: (cb: (filePath: string) => void) => () => void;
+      uploadFileToUrl: (filePath: string, url: string) => Promise<void>;
+      openDownloadsFolder: (path?: string) => Promise<void>;
+      selectFolder: () => Promise<string | null>;
+      getAutoStartStatus: () => Promise<boolean>;
       setAutoStart: (enable: boolean) => Promise<boolean>;
     }
   }

@@ -1,7 +1,6 @@
 import { ref, watch } from 'vue'
 import { io, Socket } from 'socket.io-client'
 import { isElectron } from '../utils/platform'
-import { Filesystem, Directory } from '@capacitor/filesystem'
 import { Capacitor } from '@capacitor/core'
 // 更改为全局变量
 
@@ -38,7 +37,6 @@ const currentReceivingFile = ref<{ name: string, size: number, receivedSize: num
 const receiveProgress = ref(0)
 const receiveSpeed = ref('0 B/s')
 let internalReceivedSize = 0
-let lastUIUpdateTime = 0
 const receivedFiles = ref<{ name: string, size: number, timestamp: number }[]>([])
 
 // === 身份与信任管理 ===
@@ -55,7 +53,6 @@ let peerConnection: RTCPeerConnection | null = null
 let dataChannel: RTCDataChannel | null = null
 let pendingCandidates: RTCIceCandidateInit[] = []
 let transferRequestResolver: ((value: boolean | string) => void) | null = null
-let eofResolver: (() => void) | null = null
 let httpReadyResolver: ((url: string) => void) | null = null
 let httpDoneResolver: (() => void) | null = null
 // 获取房间码防抖
@@ -656,25 +653,10 @@ const startWebRTC = async (isPolite: boolean, roomId: string) => {
 // === 接收逻辑 ===
 let lastReceiveTime = Date.now()
 let lastReceiveOffset = 0
-let writeQueuePromise = Promise.resolve()
-let receiveBuffer: ArrayBuffer[] = []
-let receiveBufferLength = 0
-const RECEIVE_BUFFER_MAX = 2 * 1024 * 1024 // 2MB 水位线
-
-const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
-  let binary = ''
-  const bytes = new Uint8Array(buffer)
-  const chunkSz = 8192
-  for (let i = 0; i < bytes.length; i += chunkSz) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSz))
-  }
-  return window.btoa(binary)
-}
 
 const handleFileMeta = async (meta: { name: string, size: number }) => {
   // reset counters & UI
   internalReceivedSize = 0
-  lastUIUpdateTime = 0
   receiveStatus.value = 'receiving'
   currentReceivingFile.value = { name: meta.name, size: meta.size, receivedSize: 0 }
   receiveProgress.value = 0
@@ -744,17 +726,6 @@ const handleFileMeta = async (meta: { name: string, size: number }) => {
   }
 }
 
-const handleFileChunk = (_chunk: ArrayBuffer) => {
-  // Deprecated: chunk-based receiving removed. HTTP receive server used instead.
-  console.warn('收到二进制切片，但当前实现已迁移到 HTTP 直传，不应接收 DataChannel 二进制.')
-}
-
-const handleFileTransferDone = async () => {
-  // Deprecated — HTTP transport handles finalization (receive-done via IPC)
-  receiveStatus.value = 'done'
-  receiveProgress.value = 100
-  receiveSpeed.value = '0 B/s'
-}
 
 // 去掉 new Promise 包装，直接声明 async 函数
 const sendFile = async (fileOrPath: string | File): Promise<void> => {
@@ -801,12 +772,13 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
     channel.send(JSON.stringify({ type: 'meta', name, size }))
 
     // Wait for receiver to start its HTTP server and announce URL (http-ready)
-    const httpUrl = await new Promise<string>((resolve, reject) => {
+    const httpUrl = await new Promise<string>((resolve) => {
       httpReadyResolver = resolve
       setTimeout(() => {
         if (httpReadyResolver) {
           httpReadyResolver = null
-          reject(new Error('等待对方启动 HTTP 服务超时'))
+          // timeout — resolve with empty string to allow fallback
+          resolve('')
         }
       }, 15000)
     })
@@ -842,7 +814,7 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
     // Wait for receiver to confirm save (http-done via dataChannel)
     try {
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolve) => {
         httpDoneResolver = resolve
         setTimeout(() => {
           if (httpDoneResolver) {
