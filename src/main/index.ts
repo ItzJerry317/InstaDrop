@@ -259,7 +259,12 @@ app.whenReady().then(() => {
 
       writeStream.on('error', (err) => {
         console.error('写入错误', err)
-        try { res.writeHead(500); res.end('Write error') } catch (e) {}
+        try {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ success: false, error: String((err && (err as any).message) || err) }))
+        } catch (e) {
+          // ignore
+        }
       })
 
       req.on('aborted', () => {
@@ -315,9 +320,9 @@ app.whenReady().then(() => {
       let parsed: url.URL
       try {
         parsed = new url.URL(targetUrl)
-      } catch (e) {
+      } catch (e: any) {
         console.error('upload-file-to-url: invalid URL', targetUrl, e)
-        return reject(new Error('Invalid target URL: ' + String(e?.message || e)))
+        return reject(new Error('Invalid target URL: ' + String((e && (e as any).message) || String(e))))
       }
 
       try {
