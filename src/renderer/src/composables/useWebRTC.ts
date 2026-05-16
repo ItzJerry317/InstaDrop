@@ -208,7 +208,7 @@ const cancelTransfer = () => {
 }
 
 const setupDataChannel = (channel: RTCDataChannel) => {
-  channel.bufferedAmountLowThreshold = 64 * 1024
+  channel.bufferedAmountLowThreshold = 1024 * 1024
   // 通用onChannelOpen函数
   const onChannelOpen = () => {
     console.log('P2P 通道打通！')
@@ -799,7 +799,7 @@ const handleFileTransferDone = async () => {
     const buffersToFlush = receiveBuffer
     const lengthToFlush = receiveBufferLength
     const fileName = currentReceivingFile.value?.name // 必须提前存一下
-    
+
     receiveBuffer = []
     receiveBufferLength = 0
 
@@ -943,7 +943,10 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
         if (isCancelled.value) throw new Error('传输已被手动终止')
         if (channel.readyState !== 'open') throw new Error('disconnected')
 
-        if (channel.bufferedAmount >= 256 * 1024) {
+        const maxBuffer = isElectron() ? 1 * 1024 * 1024 : 4 * 1024 * 1024 // iOS 允许积压 4MB
+        const minBuffer = isElectron() ? 512 * 1024 : 2 * 1024 * 1024      // iOS 降到 2MB 才唤醒
+
+        if (channel.bufferedAmount >= maxBuffer) {
           await new Promise<void>((resolve) => {
             channel.onbufferedamountlow = () => {
               clearInterval(watchdog)
@@ -952,12 +955,12 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
             }
             const watchdog = setInterval(() => {
               // 降到 64KB 恢复
-              if (channel.bufferedAmount <= 64 * 1024 || isCancelled.value || channel.readyState !== 'open') {
+              if (channel.bufferedAmount <= minBuffer || isCancelled.value || channel.readyState !== 'open') {
                 clearInterval(watchdog)
                 channel.onbufferedamountlow = null
                 resolve()
               }
-            }, 5)
+            }, 10)
           })
         }
 
@@ -970,12 +973,12 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
         chunkCount++
 
         const totalSent = offset + bufferOffset
-        fileProgress.value = Number(((totalSent / size) * 100).toFixed(2))
+        fileProgress.value = Number(((totalSent / size) * 100).toFixed(1))
 
-        if (!isElectron() && chunkCount % 20 === 0) {
-          await new Promise(r => setTimeout(r, 0)) 
-        } else if (isElectron() && chunkCount % 50 === 0) {
+        if (isElectron()) {
           await new Promise(r => setTimeout(r, 1))
+        } else if (chunkCount % 50 === 0) {
+          await new Promise(r => setTimeout(r, 0))
         }
       }
 

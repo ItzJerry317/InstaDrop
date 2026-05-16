@@ -63,7 +63,7 @@ watch(connectionError, (err) => {
 
 const isCheckingUpdate = ref(false)
 const hasNewVersion = ref(false)
-const currentVersion = ref('v1.1.9') // 你的当前版本号
+const currentVersion = ref('v1.2.0') // 你的当前版本号
 const latestVersion = ref('')
 const latestVersionInfo = ref({ version: '', url: '', notes: '' })
 
@@ -129,7 +129,7 @@ onUnmounted(() => {
       <v-btn icon="mdi-menu" style="-webkit-app-region: no-drag;" @click="drawer = !drawer"></v-btn>
       <v-app-bar-title>Instadrop</v-app-bar-title>
       <v-spacer></v-spacer>
-      <v-btn style="-webkit-app-region: no-drag;" variant="elevated" size="small" color="warning" v-if="hasNewVersion" @click="openDownloadUrl">
+      <v-btn style="-webkit-app-region: no-drag; margin-right: 5px;" variant="elevated" size="small" color="warning" v-if="hasNewVersion" @click="openDownloadUrl">
         更新
       </v-btn>
       <v-btn icon="mdi-window-minimize" style="-webkit-app-region: no-drag;" @click="minimizeApp"
