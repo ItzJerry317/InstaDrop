@@ -898,8 +898,8 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
     await new Promise(r => setTimeout(r, 500))
 
-    const chunkSize = 64 * 1024
-    const fileReadSize = 2 * 1024 * 1024 // 🔥 终极杀招：每次从硬盘读取 2MB 的大块水桶！
+    const chunkSize = isElectron() ? 64 * 1024 : 16 * 1024 
+    const fileReadSize = isElectron() ? 2 * 1024 * 1024 : 512 * 1024
     let offset = 0
     let chunkCount = 0
     sendStatus.value = { status: 'sending', message: `正在发送 ${name} (${Math.round(size / 1024)} KB)` }
@@ -938,15 +938,13 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
         throw new Error('读取文件失败')
       }
 
+      const maxBuffer = isElectron() ? 1 * 1024 * 1024 : 1 * 1024 * 1024 // iOS 允许积压 1MB
+      const minBuffer = isElectron() ? 512 * 1024 : 256 * 1024      // iOS 降到 256KB 才唤醒
       let bufferOffset = 0
       while (bufferOffset < largeBuffer.byteLength) {
         if (isCancelled.value) throw new Error('传输已被手动终止')
         if (channel.readyState !== 'open') throw new Error('disconnected')
-
-        const maxBuffer = isElectron() ? 1 * 1024 * 1024 : 4 * 1024 * 1024 // iOS 允许积压 4MB
-        const minBuffer = isElectron() ? 512 * 1024 : 2 * 1024 * 1024      // iOS 降到 2MB 才唤醒
-
-        if (channel.bufferedAmount >= maxBuffer) {
+        if (channel.bufferedAmount > maxBuffer) {
           await new Promise<void>((resolve) => {
             channel.onbufferedamountlow = () => {
               clearInterval(watchdog)
@@ -977,14 +975,15 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
 
         if (isElectron()) {
           await new Promise(r => setTimeout(r, 1))
-        } else if (chunkCount % 50 === 0) {
-          await new Promise(r => setTimeout(r, 0))
         }
       }
 
       // 这一大桶 2MB 发完了，外层游标前进
       offset += largeBuffer.byteLength
-
+      
+      if (!isElectron()) {
+        await new Promise(r => setTimeout(r, 0))
+      }
       // 速度计算 (保持 500ms 刷新)
       const now = Date.now()
       if (now - lastTime >= 500) {
