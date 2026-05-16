@@ -783,6 +783,13 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
       }, 15000)
     })
 
+    if (!httpUrl) {
+      const msg = '对方未能提供有效的 HTTP 地址 (http-ready 超时或失败)'
+      console.error(msg)
+      sendStatus.value = { status: 'error', message: msg }
+      throw new Error(msg)
+    }
+
     // Perform upload: prefer XHR on browser/Capacitor for progress; use main-process helper on Electron path-based files
     sendStatus.value = { status: 'sending', message: `正在上传 ${name}` }
     fileProgress.value = 0
@@ -791,7 +798,12 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
     if (fileOrPath instanceof File) {
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest()
-        xhr.open('POST', `${httpUrl}/upload`)
+        try {
+          xhr.open('POST', `${httpUrl}/upload`)
+        } catch (err: any) {
+          console.error('XHR open failed', err)
+          return reject(new Error('无效的目标 URL: ' + String(err.message || err)))
+        }
         xhr.setRequestHeader('x-filename', encodeURIComponent(name))
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
@@ -802,14 +814,29 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
         }
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) resolve()
-          else reject(new Error('上传失败: ' + xhr.status))
+          else {
+            const errMsg = `上传失败: ${xhr.status} ${xhr.statusText || ''} ${xhr.responseText || ''}`
+            console.error(errMsg)
+            reject(new Error(errMsg))
+          }
         }
-        xhr.onerror = (err) => reject(err)
+        xhr.onerror = () => {
+          const errMsg = `XHR 上传错误: status=${xhr.status} statusText=${xhr.statusText}`
+          console.error(errMsg)
+          reject(new Error(errMsg))
+        }
         xhr.send(fileOrPath)
       })
     } else {
       // Electron: fileOrPath is local file path string
-      await window.myElectronAPI.uploadFileToUrl(fileOrPath as string, httpUrl)
+      try {
+        await window.myElectronAPI.uploadFileToUrl(fileOrPath as string, httpUrl)
+      } catch (err: any) {
+        const errMsg = 'Electron 上传失败: ' + (err?.message || String(err))
+        console.error(errMsg, err)
+        sendStatus.value = { status: 'error', message: errMsg }
+        throw new Error(errMsg)
+      }
     }
 
     // Wait for receiver to confirm save (http-done via dataChannel)
@@ -829,10 +856,11 @@ const sendFile = async (fileOrPath: string | File): Promise<void> => {
     sendStatus.value = { status: 'done', message: `文件 ${name} 发送完成` }
     transferSpeed.value = '0 B/s'
   } catch (err: any) {
+    console.error('sendFile error:', err)
     if (isCancelled.value) {
       resetTransfer()
     } else {
-      const errorMsg = err.message || '未知错误'
+      const errorMsg = err?.message || String(err) || '未知错误'
       sendStatus.value = { status: 'error', message: `传输异常：${errorMsg}` }
       transferSpeed.value = '0 B/s'
     }

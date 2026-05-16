@@ -306,8 +306,21 @@ app.whenReady().then(() => {
   // Electron helper: upload local file to remote HTTP endpoint
   ipcMain.handle('upload-file-to-url', async (_event, filePath: string, targetUrl: string) => {
     return new Promise<void>((resolve, reject) => {
+      if (!targetUrl || typeof targetUrl !== 'string' || targetUrl.trim() === '') {
+        const err = new Error('Invalid target URL: empty')
+        console.error('upload-file-to-url called with empty targetUrl', { filePath, targetUrl })
+        return reject(err)
+      }
+
+      let parsed: url.URL
       try {
-        const parsed = new url.URL(targetUrl)
+        parsed = new url.URL(targetUrl)
+      } catch (e) {
+        console.error('upload-file-to-url: invalid URL', targetUrl, e)
+        return reject(new Error('Invalid target URL: ' + String(e?.message || e)))
+      }
+
+      try {
         const isHttps = parsed.protocol === 'https:'
         const mod = isHttps ? https : http
         const filename = encodeURIComponent(path.basename(filePath))
@@ -315,24 +328,36 @@ app.whenReady().then(() => {
           method: 'POST',
           hostname: parsed.hostname,
           port: parsed.port || (isHttps ? 443 : 80),
-          path: parsed.pathname + (parsed.search || '') + '/upload',
+          path: (parsed.pathname || '/') + (parsed.search || '') + '/upload',
           headers: {
             'x-filename': filename,
             'Content-Type': 'application/octet-stream'
           }
         }
+        console.log('upload-file-to-url: uploading', { filePath, to: targetUrl, options })
         const req = mod.request(options, (res) => {
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             resolve()
           } else {
-            reject(new Error('Upload failed: ' + res.statusCode))
+            const err = new Error('Upload failed: ' + res.statusCode)
+            console.error('upload-file-to-url failed', { status: res.statusCode })
+            reject(err)
           }
         })
-        req.on('error', reject)
+        req.on('error', (err) => {
+          console.error('upload-file-to-url request error', err)
+          reject(err)
+        })
         const rs = fs.createReadStream(filePath)
-        rs.on('error', reject)
+        rs.on('error', (err) => {
+          console.error('upload-file-to-url readStream error', err)
+          reject(err)
+        })
         rs.pipe(req)
-      } catch (e) { reject(e) }
+      } catch (e) {
+        console.error('upload-file-to-url unexpected error', e)
+        reject(e)
+      }
     })
   })
 
